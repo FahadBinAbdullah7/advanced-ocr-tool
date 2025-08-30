@@ -19,6 +19,8 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Crop,
+  X,
 } from "lucide-react";
 import type { CorrectAndSummarizeTextOutput } from "@/ai/flows/correct-and-summarize-text";
 import {
@@ -60,20 +62,17 @@ export function OcrTool() {
     useState<CorrectAndSummarizeTextOutput | null>(null);
 
   const [imageSrc, setImageSrc] = useState<string>("");
-  const [isImageEnhanced, setIsImageEnhanced] = useState(false);
-  const [base64Image, setBase64Image] = useState<string | null>(null);
+  const [croppedImageSrc, setCroppedImageSrc] = useState<string | null>(null);
   const [redrawnImage, setRedrawnImage] = useState<string | null>(null);
   const [isLoadingRedraw, setIsLoadingRedraw] = useState(false);
   const [copied, setCopied] = useState(false);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
 
   const [selection, setSelection] = useState<Selection | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(null);
-
 
   const { toast } = useToast();
 
@@ -88,8 +87,9 @@ export function OcrTool() {
       setNumPages(null);
       setPageNumber(1);
       setSelection(null);
+      setCroppedImageSrc(null);
 
-      if (file.type.startsWith('image/')) {
+      if (file.type.startsWith("image/")) {
         const reader = new FileReader();
         reader.onloadend = () => {
           setImageSrc(reader.result as string);
@@ -98,10 +98,6 @@ export function OcrTool() {
       } else {
         setImageSrc("");
       }
-
-
-      setIsImageEnhanced(false);
-      setBase64Image(null);
       setRedrawnImage(null);
     }
   };
@@ -119,113 +115,109 @@ export function OcrTool() {
       pageNumber + 1 >= (numPages || 0) ? numPages || 1 : pageNumber + 1
     );
 
-  const handleExtractText = async (area: 'full' | 'selected') => {
-    if (!file) {
-      toast({
-        title: "No file uploaded",
-        description: "Please upload a document or image first.",
-        variant: "destructive",
-      });
-      return;
-    }
-     if (area === 'selected' && !selection) {
-      toast({
-        title: "No area selected",
-        description: "Please select an area on the document to extract text from.",
-        variant: "destructive",
-      });
-      return;
-    }
+  const getSourceCanvas = async (): Promise<HTMLCanvasElement> => {
+    const fullCanvas = document.createElement("canvas");
+    const fullCtx = fullCanvas.getContext("2d");
+    if (!fullCtx) throw new Error("Canvas context is not available.");
 
-    setIsExtracting(true);
-    
-    let dataUri: string | undefined;
+    if (isPdf && file) {
+      const pdfDoc = await pdfjs.getDocument(URL.createObjectURL(file)).promise;
+      const pdfPage = await pdfDoc.getPage(pageNumber);
+      const viewport = pdfPage.getViewport({ scale: 2.0 }); // Render at high quality for better OCR
+      fullCanvas.width = viewport.width;
+      fullCanvas.height = viewport.height;
+      await pdfPage.render({ canvasContext: fullCtx, viewport }).promise;
+    } else {
+      const img = new window.Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+        img.src = imageSrc;
+      });
+      fullCanvas.width = img.naturalWidth;
+      fullCanvas.height = img.naturalHeight;
+      fullCtx.drawImage(img, 0, 0);
+    }
+    return fullCanvas;
+  };
 
+  const handleCrop = async () => {
+    if (!selection || !imageContainerRef.current) return;
     try {
-        const displayedElement = imageContainerRef.current?.querySelector(isPdf ? 'canvas' : 'img') as HTMLElement | null;
+      const displayedElement = imageContainerRef.current?.querySelector(isPdf ? "canvas" : "img") as HTMLElement | null;
+      if (!displayedElement) throw new Error("Could not find the document view element.");
 
-        if (!displayedElement) {
-            throw new Error("Could not find the document view element.");
-        }
+      const fullCanvas = await getSourceCanvas();
+      const displayedRect = displayedElement.getBoundingClientRect();
+      const scaleX = fullCanvas.width / displayedRect.width;
+      const scaleY = fullCanvas.height / displayedRect.height;
+      
+      const cropX = selection.x * scaleX;
+      const cropY = selection.y * scaleY;
+      const cropWidth = selection.width * scaleX;
+      const cropHeight = selection.height * scaleY;
+      
+      const croppedCanvas = document.createElement("canvas");
+      croppedCanvas.width = cropWidth;
+      croppedCanvas.height = cropHeight;
+      const croppedCtx = croppedCanvas.getContext("2d");
+      if (!croppedCtx) throw new Error("Could not create cropped canvas context.");
 
-        const fullCanvas = document.createElement('canvas');
-        const fullCtx = fullCanvas.getContext('2d');
-        if (!fullCtx) throw new Error("Canvas context is not available.");
+      croppedCtx.drawImage(
+        fullCanvas,
+        cropX,
+        cropY,
+        cropWidth,
+        cropHeight,
+        0,
+        0,
+        cropWidth,
+        cropHeight
+      );
 
-        if (isPdf) {
-            const pdfDoc = await pdfjs.getDocument(URL.createObjectURL(file)).promise;
-            const pdfPage = await pdfDoc.getPage(pageNumber);
-            const viewport = pdfPage.getViewport({ scale: 2.0 }); // Render at high quality
-            fullCanvas.width = viewport.width;
-            fullCanvas.height = viewport.height;
-            await pdfPage.render({ canvasContext: fullCtx, viewport }).promise;
-        } else {
-            const img = new window.Image();
-            await new Promise<void>((resolve, reject) => {
-                img.onload = () => resolve();
-                img.onerror = reject;
-                img.src = imageSrc;
-            });
-            fullCanvas.width = img.naturalWidth;
-            fullCanvas.height = img.naturalHeight;
-            fullCtx.drawImage(img, 0, 0);
-        }
-
-        if (area === 'full') {
-            dataUri = fullCanvas.toDataURL();
-        } else if (area === 'selected' && selection) {
-            const displayedRect = displayedElement.getBoundingClientRect();
-            
-            // Calculate the scaling factor between the displayed size and the full-resolution canvas size
-            const scaleX = fullCanvas.width / displayedRect.width;
-            const scaleY = fullCanvas.height / displayedRect.height;
-            
-            // Apply the scaling factor to the selection coordinates
-            const cropX = selection.x * scaleX;
-            const cropY = selection.y * scaleY;
-            const cropWidth = selection.width * scaleX;
-            const cropHeight = selection.height * scaleY;
-            
-            const croppedCanvas = document.createElement('canvas');
-            croppedCanvas.width = cropWidth;
-            croppedCanvas.height = cropHeight;
-            const croppedCtx = croppedCanvas.getContext('2d');
-            if (!croppedCtx) throw new Error("Could not create cropped canvas context.");
-
-            // Draw the cropped portion from the full-resolution canvas
-            croppedCtx.drawImage(
-                fullCanvas,
-                cropX,
-                cropY,
-                cropWidth,
-                cropHeight,
-                0,
-                0,
-                cropWidth,
-                cropHeight
-            );
-            dataUri = croppedCanvas.toDataURL();
-        }
-
-        if (!dataUri) {
-            throw new Error("Could not generate image data for OCR.");
-        }
-    
-        const text = await performOcr(dataUri);
-        setExtractedText(text);
-        toast({
-          title: "Text Extracted",
-          description: `Successfully extracted text from the ${area === 'selected' ? 'selected area' : 'full page'}.`,
-        });
-
+      setCroppedImageSrc(croppedCanvas.toDataURL());
+      setSelection(null);
+      toast({
+        title: "Area Cropped",
+        description: "You can now extract text from the cropped area.",
+      });
     } catch (error) {
       console.error(error);
       const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
       toast({
-        title: "Extraction Failed",
-        description: `An error occurred while extracting text: ${errorMessage}`,
+        title: "Crop Failed",
+        description: `An error occurred while cropping: ${errorMessage}`,
         variant: "destructive",
       });
+    }
+  };
+  
+  const handleExtractText = async () => {
+    if (!file && !croppedImageSrc) {
+      toast({ title: "No file uploaded", description: "Please upload a document or image first.", variant: "destructive" });
+      return;
+    }
+  
+    setIsExtracting(true);
+    try {
+      let dataUri: string | undefined;
+
+      if (croppedImageSrc) {
+        dataUri = croppedImageSrc;
+      } else {
+        const canvas = await getSourceCanvas();
+        dataUri = canvas.toDataURL();
+      }
+
+      if (!dataUri) throw new Error("Could not generate image data for OCR.");
+  
+      const text = await performOcr(dataUri);
+      setExtractedText(text);
+      toast({ title: "Text Extracted", description: `Successfully extracted text from the ${croppedImageSrc ? "cropped area" : "full page"}.` });
+    } catch (error) {
+      console.error(error);
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+      toast({ title: "Extraction Failed", description: `An error occurred while extracting text: ${errorMessage}`, variant: "destructive" });
     } finally {
       setIsExtracting(false);
       setSelection(null);
@@ -258,8 +250,8 @@ export function OcrTool() {
     }
   };
 
-    const handleMouseDown = (e: MouseEvent<HTMLDivElement>) => {
-    if (!imageContainerRef.current) return;
+  const handleMouseDown = (e: MouseEvent<HTMLDivElement>) => {
+    if (!imageContainerRef.current || croppedImageSrc) return;
     setIsSelecting(true);
     const rect = imageContainerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -270,7 +262,7 @@ export function OcrTool() {
   };
 
   const handleMouseMove = (e: MouseEvent<HTMLDivElement>) => {
-    if (!isSelecting || !startPoint || !imageContainerRef.current) return;
+    if (!isSelecting || !startPoint || !imageContainerRef.current || croppedImageSrc) return;
     const rect = imageContainerRef.current.getBoundingClientRect();
     const currentX = e.clientX - rect.left;
     const currentY = e.clientY - rect.top;
@@ -288,20 +280,21 @@ export function OcrTool() {
     setStartPoint(null);
   };
 
-
   const handleRedrawImage = async () => {
-    if (!imageSrc) {
-      toast({
-        title: "No image found",
-        description: "Please extract an image from a document first.",
-        variant: "destructive",
-      });
+    const source = croppedImageSrc || imageSrc;
+    if (!source) {
+      toast({ title: "No image found", description: "Please upload or crop an image first.", variant: "destructive" });
       return;
     }
     setIsLoadingRedraw(true);
     try {
-      const result = await performImageRedraw(imageSrc);
+      const result = await performImageRedraw(source);
       setRedrawnImage(result);
+      if (croppedImageSrc) {
+        setCroppedImageSrc(result);
+      } else {
+        setImageSrc(result);
+      }
     } catch (error) {
       toast({
         title: "Image Redraw Failed",
@@ -324,10 +317,10 @@ export function OcrTool() {
   };
 
   const isPdf = file?.type === 'application/pdf';
+  const hasSelection = selection && selection.width > 0 && selection.height > 0;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">
-       <canvas ref={canvasRef} style={{ display: 'none' }} />
       {/* Left Column: Upload and Controls */}
       <div className="lg:col-span-3 space-y-6">
         <Card>
@@ -352,7 +345,7 @@ export function OcrTool() {
                 Selected: <span className="font-medium">{fileName}</span>
               </p>
             )}
-             {isPdf && numPages && (
+             {isPdf && numPages && !croppedImageSrc && (
               <div className="flex items-center justify-center gap-2">
                   <Button onClick={goToPrevPage} disabled={pageNumber <= 1} variant="outline" size="icon">
                       <ChevronLeft />
@@ -373,31 +366,34 @@ export function OcrTool() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-             <Button
-              onClick={() => handleExtractText('full')}
+            {hasSelection && !croppedImageSrc && (
+              <Button
+                onClick={handleCrop}
+                className="w-full"
+                variant="outline"
+              >
+                <Crop />
+                Crop Selected Area
+              </Button>
+            )}
+            <Button
+              onClick={handleExtractText}
               disabled={!fileName || isExtracting}
               className="w-full"
             >
-              {isExtracting && !selection ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <ScanText />
-              )}
-              {isExtracting && !selection ? "Extracting..." : "Extract Full Page"}
+              {isExtracting ? <Loader2 className="animate-spin" /> : <ScanText />}
+              {isExtracting ? "Extracting..." : croppedImageSrc ? "Extract from Cropped" : "Extract Full Page"}
             </Button>
-            <Button
-              onClick={() => handleExtractText('selected')}
-              disabled={!fileName || isExtracting || !selection || selection.width === 0 || selection.height === 0}
-              className="w-full"
-              variant="outline"
-            >
-              {isExtracting && selection ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <ScanText />
-              )}
-              {isExtracting && selection ? "Extracting..." : "Extract Selected Area"}
-            </Button>
+            {croppedImageSrc && (
+              <Button
+                onClick={() => setCroppedImageSrc(null)}
+                className="w-full"
+                variant="ghost"
+              >
+                <X className="w-4 h-4" />
+                Clear Crop
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -416,13 +412,22 @@ export function OcrTool() {
             <CardContent>
             <div 
               ref={imageContainerRef}
-              className="w-full h-full min-h-[60vh] bg-muted rounded-lg flex items-center justify-center overflow-auto border relative cursor-crosshair"
+              className={`w-full h-full min-h-[60vh] bg-muted rounded-lg flex items-center justify-center overflow-auto border relative ${!croppedImageSrc ? "cursor-crosshair" : ""}`}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
             >
-                {isPdf && file ? (
+                {croppedImageSrc ? (
+                   <Image
+                    src={redrawnImage || croppedImageSrc}
+                    alt="Cropped content"
+                    data-ai-hint="document image"
+                    layout="fill"
+                    objectFit="contain"
+                    unoptimized={!!redrawnImage}
+                  />
+                ) : isPdf && file ? (
                     <Document file={file} onLoadSuccess={onDocumentLoadSuccess}>
                     <Page pageNumber={pageNumber} renderTextLayer={false} />
                     </Document>
@@ -567,5 +572,3 @@ export function OcrTool() {
     </div>
   );
 }
-
-    
