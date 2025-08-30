@@ -37,7 +37,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 
 const SAMPLE_TEXT = `This is a sample text in English.
-এখানে বাংলায় কিছু নমুনা পাঠ্য রয়েছে।
+_Here is some sample text in Bangla_
 Our goal is to test the OCR capabilitis.
 The quick brown fox jumps ovre the lazy dog.
 Math equation: E = mc^2`;
@@ -83,11 +83,13 @@ export function OcrTool() {
       });
       return;
     }
-    setExtractedText(SAMPLE_TEXT);
-    setImageSrc(SAMPLE_IMAGE_URL);
+    // TODO: Implement actual text extraction from the uploaded file.
+    // For now, we'll just show a toast message.
+    setExtractedText("Text extraction from files is not yet implemented.");
+    setImageSrc("");
     toast({
-      title: "Extraction Complete",
-      description: "Simulated text and image extraction was successful.",
+      title: "Feature Not Implemented",
+      description: "Text and image extraction from files is a planned feature.",
     });
   };
 
@@ -411,3 +413,5 @@ export function OcrTool() {
     </div>
   );
 }
+
+    
