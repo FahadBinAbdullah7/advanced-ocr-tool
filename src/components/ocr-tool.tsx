@@ -143,13 +143,12 @@ export function OcrTool() {
     let dataUri: string | undefined;
 
     try {
-        const imageElement = imageContainerRef.current?.querySelector(isPdf ? 'canvas' : 'img');
+        const imageElement = imageContainerRef.current?.querySelector(isPdf ? 'canvas' : 'img') as HTMLElement | null;
     
         if (!imageElement) {
             throw new Error("Could not find the document view element.");
         }
     
-        // Get the full resolution image/pdf page
         const fullResolutionCanvas = document.createElement('canvas');
         const fullResolutionCtx = fullResolutionCanvas.getContext('2d');
     
@@ -166,8 +165,8 @@ export function OcrTool() {
             await pdfPage.render({ canvasContext: fullResolutionCtx, viewport }).promise;
         } else {
             const img = new window.Image();
-            const imgPromise = new Promise((resolve, reject) => {
-                img.onload = resolve;
+            const imgPromise = new Promise<void>((resolve, reject) => {
+                img.onload = () => resolve();
                 img.onerror = reject;
                 img.src = imageSrc; // Use original image source
             });
@@ -180,7 +179,6 @@ export function OcrTool() {
         if (area === 'full') {
             dataUri = fullResolutionCanvas.toDataURL();
         } else if (area === 'selected' && selection) {
-            const { getBoundingClientRect } = imageElement;
             const displayedRect = imageElement.getBoundingClientRect();
     
             const scaleX = fullResolutionCanvas.width / displayedRect.width;
@@ -273,7 +271,6 @@ export function OcrTool() {
     const y = e.clientY - rect.top;
 
     setStartPoint({ x, y });
-    // Reset selection immediately on new mousedown
     setSelection({x, y, width: 0, height: 0});
   };
 
@@ -445,7 +442,11 @@ export function OcrTool() {
                     unoptimized={!!redrawnImage}
                 />
                 ) : (
-                <p className="text-muted-foreground">Document or image will appear here</p>
+                <div className="flex flex-col items-center justify-center text-muted-foreground text-center p-4">
+                    <ImageIcon className="w-16 h-16 mb-4" />
+                    <h3 className="font-semibold text-lg">Document or image will appear here</h3>
+                    <p className="text-sm">Upload a file to get started.</p>
+                </div>
                 )}
                  {selection && (
                   <div
@@ -546,6 +547,7 @@ export function OcrTool() {
                                 <TableCell className="text-destructive/80">
                                     {correction.original}
                                 </TableCell>
+
                                 <TableCell className="text-green-600">
                                     {correction.corrected}
                                 </TableCell>
@@ -570,5 +572,3 @@ export function OcrTool() {
     </div>
   );
 }
-
-    
