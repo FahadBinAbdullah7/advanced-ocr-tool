@@ -40,7 +40,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -254,12 +253,9 @@ export function OcrTool() {
   };
   
   const copyToClipboard = () => {
-    if (base64Image) {
-      navigator.clipboard.writeText(base64Image);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } else if (extractedText) {
-      navigator.clipboard.writeText(extractedText);
+    const textToCopy = correctionResult?.correctedText || extractedText || base64Image;
+    if (textToCopy) {
+      navigator.clipboard.writeText(textToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -271,12 +267,12 @@ export function OcrTool() {
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">
        <canvas ref={canvasRef} style={{ display: 'none' }} />
       {/* Left Column: Upload and Controls */}
-      <div className="lg:col-span-4 space-y-6">
+      <div className="lg:col-span-3 space-y-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Upload className="w-5 h-5" />
-              1. Upload Document
+              1. Upload
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -294,7 +290,28 @@ export function OcrTool() {
                 Selected: <span className="font-medium">{fileName}</span>
               </p>
             )}
-            <Button
+             {isPdf && numPages && (
+              <div className="flex items-center justify-center gap-2">
+                  <Button onClick={goToPrevPage} disabled={pageNumber <= 1} variant="outline" size="icon">
+                      <ChevronLeft />
+                  </Button>
+                  <span>Page {pageNumber} of {numPages}</span>
+                  <Button onClick={goToNextPage} disabled={pageNumber >= numPages} variant="outline" size="icon">
+                      <ChevronRight />
+                  </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+           <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ScanText className="w-5 h-5" />
+              2. Extract
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+             <Button
               onClick={handleExtractText}
               disabled={!fileName || isExtracting}
               className="w-full"
@@ -304,223 +321,158 @@ export function OcrTool() {
               ) : (
                 <ScanText />
               )}
-              {isExtracting ? "Extracting..." : "Extract Content"}
+              {isExtracting ? "Extracting..." : "Extract Full Page"}
+            </Button>
+            <Button
+              onClick={() => toast({ title: "Coming Soon!", description: "Area selection will be implemented soon."})}
+              disabled={!fileName || isExtracting}
+              className="w-full"
+              variant="outline"
+            >
+              Extract Selected Area
             </Button>
           </CardContent>
         </Card>
       </div>
 
-      {/* Right Column: Results */}
-      <div className="lg:col-span-8">
-        <Tabs defaultValue="text" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="text">
-              <FileText className="mr-2" /> Extracted Text
-            </TabsTrigger>
-            <TabsTrigger value="image">
-              <ImageIcon className="mr-2" /> Document View
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="text">
-            <Card>
-              <CardHeader>
+      {/* Middle Column: Document View */}
+      <div className="lg:col-span-5">
+        <Card className="h-full">
+            <CardHeader>
                 <CardTitle className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <FileText className="w-5 h-5" />
-                    2. Review & Correct Text
-                  </span>
-                   <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" onClick={copyToClipboard} disabled={!extractedText}>
-                        {copied ? <Check className="w-4 h-4 text-green-500" /> : <Clipboard className="w-4 h-4" />}
-                        <span className="ml-2">{copied ? "Copied!" : "Copy Text"}</span>
-                    </Button>
-                    <Button
-                      onClick={handleCorrectText}
-                      disabled={!extractedText || isLoadingCorrection}
-                    >
-                      {isLoadingCorrection ? (
-                        <Loader2 className="animate-spin" />
-                      ) : (
-                        <Sparkles />
-                      )}
-                      Correct with AI
-                    </Button>
-                  </div>
+                    <span className="flex items-center gap-2">
+                    <ImageIcon className="w-5 h-5" />
+                    Document View
+                    </span>
                 </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Textarea
-                  placeholder="Extracted text will appear here..."
-                  value={extractedText}
-                  onChange={(e) => setExtractedText(e.target.value)}
-                  rows={8}
+            </CardHeader>
+            <CardContent>
+            <div className="w-full h-full min-h-[60vh] bg-muted rounded-lg flex items-center justify-center overflow-auto border">
+                {isPdf && file ? (
+                    <Document file={file} onLoadSuccess={onDocumentLoadSuccess}>
+                    <Page pageNumber={pageNumber} renderTextLayer={false} />
+                    </Document>
+                ) : imageSrc ? (
+                <Image
+                    src={redrawnImage || imageSrc}
+                    alt="Uploaded content"
+                    data-ai-hint="document image"
+                    width={800}
+                    height={1100}
+                    className="object-contain"
+                    unoptimized={!!redrawnImage}
                 />
-
-                {isLoadingCorrection && (
-                  <div className="flex items-center justify-center p-8">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                    <p className="ml-4 text-muted-foreground">
-                      AI is correcting your text...
-                    </p>
-                  </div>
+                ) : (
+                <p className="text-muted-foreground">Document or image will appear here</p>
                 )}
+            </div>
+            </CardContent>
+        </Card>
+      </div>
 
-                {correctionResult && (
-                  <div className="space-y-6 pt-4">
-                    <div>
-                      <Label
-                        htmlFor="corrected-text"
-                        className="text-lg font-semibold"
-                      >
-                        AI Corrected Text
-                      </Label>
-                      <Textarea
-                        id="corrected-text"
-                        value={correctionResult.correctedText}
-                        readOnly
-                        rows={8}
-                        className="mt-2 bg-secondary"
-                      />
-                    </div>
-
-                    {correctionResult.correctionsSummary.length > 0 && (
-                      <div>
-                        <h3 className="text-lg font-semibold mb-2">
-                          Summary of Corrections
-                        </h3>
-                        <div className="border rounded-lg overflow-hidden">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Original</TableHead>
-                                <TableHead>Corrected</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {correctionResult.correctionsSummary.map(
-                                (correction, index) => (
-                                  <TableRow key={index}>
-                                    <TableCell className="text-destructive/80">
-                                      {correction.original}
-                                    </TableCell>
-                                    <TableCell className="text-green-600">
-                                      {correction.corrected}
-                                    </TableCell>
-                                  </TableRow>
-                                )
-                              )}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      </div>
-                    )}
-                      {correctionResult.correctionsSummary.length === 0 && (
-                        <p className="text-center text-muted-foreground py-4">
-                          AI found no errors to correct. Great job!
-                        </p>
-                      )}
-                  </div>
+      {/* Right Column: Text Results */}
+      <div className="lg:col-span-4">
+        <Card>
+            <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Extracted Text
+                </span>
+                <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={copyToClipboard} disabled={!extractedText && !correctionResult}>
+                    {copied ? <Check className="w-4 h-4 text-green-500" /> : <Clipboard className="w-4 h-4" />}
+                    <span className="ml-2">{copied ? "Copied!" : "Copy"}</span>
+                </Button>
+                </div>
+            </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+            <Textarea
+                placeholder="Extracted text will appear here..."
+                value={extractedText}
+                onChange={(e) => setExtractedText(e.target.value)}
+                rows={8}
+            />
+            <Button
+                onClick={handleCorrectText}
+                disabled={!extractedText || isLoadingCorrection}
+                className="w-full"
+            >
+                {isLoadingCorrection ? (
+                <Loader2 className="animate-spin" />
+                ) : (
+                <Sparkles />
                 )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-          <TabsContent value="image">
-            <Card>
-              <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                     <span className="flex items-center gap-2">
-                        <ImageIcon className="w-5 h-5" />
-                        3. Analyze & Enhance
-                      </span>
-                      {isPdf && numPages && (
-                      <div className="flex items-center gap-2">
-                          <Button onClick={goToPrevPage} disabled={pageNumber <= 1} variant="outline" size="icon">
-                              <ChevronLeft />
-                          </Button>
-                          <span>Page {pageNumber} of {numPages}</span>
-                          <Button onClick={goToNextPage} disabled={pageNumber >= numPages} variant="outline" size="icon">
-                              <ChevronRight />
-                          </Button>
-                      </div>
-                    )}
-                  </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="w-full aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden border">
-                  {isPdf && file ? (
-                     <Document file={file} onLoadSuccess={onDocumentLoadSuccess}>
-                        <Page pageNumber={pageNumber} />
-                     </Document>
-                  ) : imageSrc ? (
-                    <Image
-                      src={redrawnImage || imageSrc}
-                      alt="Uploaded content"
-                      data-ai-hint="abstract design"
-                      width={800}
-                      height={600}
-                      className={`object-contain transition-all duration-300 ${isImageEnhanced ? "filter brightness-110 contrast-110" : ""}`}
-                      unoptimized={!!redrawnImage}
+                Correct with AI
+            </Button>
+            {isLoadingCorrection && (
+                <div className="flex items-center justify-center p-8">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                <p className="ml-4 text-muted-foreground">
+                    AI is correcting...
+                </p>
+                </div>
+            )}
+
+            {correctionResult && (
+                <div className="space-y-6 pt-4">
+                <div>
+                    <Label
+                    htmlFor="corrected-text"
+                    className="text-lg font-semibold"
+                    >
+                    AI Corrected Text
+                    </Label>
+                    <Textarea
+                    id="corrected-text"
+                    value={correctionResult.correctedText}
+                    readOnly
+                    rows={8}
+                    className="mt-2 bg-secondary"
                     />
-                  ) : (
-                    <p className="text-muted-foreground">Document or image will appear here</p>
-                  )}
                 </div>
 
-                 {!isPdf && (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <Button onClick={handleEnhanceImage} disabled={!imageSrc}>
-                        <Sparkles />
-                        {isImageEnhanced ? "Remove Enhance" : "Enhance"}
-                      </Button>
-                      <Button onClick={handleConvertToBase64} disabled={!imageSrc}>
-                        <Code />
-                        To Base64
-                      </Button>
-                      <Button
-                        onClick={handleRedrawImage}
-                        disabled={!imageSrc || isLoadingRedraw}
-                      >
-                        {isLoadingRedraw ? (
-                          <Loader2 className="animate-spin" />
-                        ) : (
-                          <Bot />
-                        )}
-                        Redraw with AI
-                      </Button>
+                {correctionResult.correctionsSummary.length > 0 && (
+                    <div>
+                    <h3 className="text-lg font-semibold mb-2">
+                        Summary of Corrections
+                    </h3>
+                    <div className="border rounded-lg overflow-hidden">
+                        <Table>
+                        <TableHeader>
+                            <TableRow>
+                            <TableHead>Original</TableHead>
+                            <TableHead>Corrected</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {correctionResult.correctionsSummary.map(
+                            (correction, index) => (
+                                <TableRow key={index}>
+                                <TableCell className="text-destructive/80">
+                                    {correction.original}
+                                </TableCell>
+                                <TableCell className="text-green-600">
+                                    {correction.corrected}
+                                </TableCell>
+                                </TableRow>
+                            )
+                            )}
+                        </TableBody>
+                        </Table>
                     </div>
-                 )}
-                
-                {isLoadingRedraw && (
-                    <div className="flex items-center justify-center p-8">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                    <p className="ml-4 text-muted-foreground">
-                      AI is redrawing your image...
+                    </div>
+                )}
+                    {correctionResult.correctionsSummary.length === 0 && (
+                    <p className="text-center text-muted-foreground py-4">
+                        AI found no errors to correct. Great job!
                     </p>
-                  </div>
-                )}
-
-                {base64Image && !isPdf && (
-                  <div className="space-y-2 pt-4">
-                      <div className="flex justify-between items-center">
-                      <Label htmlFor="base64-output" className="text-lg font-semibold">
-                        Base64 Output
-                      </Label>
-                      <Button variant="ghost" size="sm" onClick={copyToClipboard}>
-                        {copied ? <Check className="w-4 h-4 text-green-500" /> : <Clipboard className="w-4 h-4" />}
-                        <span className="ml-2">{copied ? "Copied!" : "Copy"}</span>
-                      </Button>
-                      </div>
-                    <pre className="bg-secondary rounded-md p-4 max-h-48 overflow-auto">
-                      <code id="base64-output" className="text-sm font-code break-all">
-                        {base64Image}
-                      </code>
-                    </pre>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                    )}
+                </div>
+            )}
+            </CardContent>
+        </Card>
       </div>
     </div>
   );
