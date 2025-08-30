@@ -47,13 +47,14 @@ const correctAndSummarizeTextPrompt = ai.definePrompt({
   name: 'correctAndSummarizeTextPrompt',
   input: {schema: CorrectAndSummarizeTextInputSchema},
   output: {schema: CorrectAndSummarizeTextOutputSchema},
-  prompt: `You are an AI expert in correcting text and identifying errors.
+  prompt: `You are an AI expert in correcting text and identifying errors. Your primary goal is to fix mistakes while preserving the original structure and formatting of the text as closely as possible.
 
 You will receive extracted text that may contain spelling mistakes, grammatical errors, or other inaccuracies. Your task is to:
 
 1.  Correct any errors in the extracted text to produce a clean, accurate version.
-2.  Identify the specific corrections you made.
-3.  Summarize these corrections in a structured format, showing the original and corrected text for each change.
+2.  **Crucially, maintain the original line breaks, indentation, and general formatting of the text.** Do not combine paragraphs or alter the layout unless it's essential for correcting a grammatical error.
+3.  Identify the specific corrections you made.
+4.  Summarize these corrections in a structured format, showing the original and corrected text for each change.
 
 Extracted Text: {{{extractedText}}}
 
