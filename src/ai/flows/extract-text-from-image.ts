@@ -58,7 +58,9 @@ const extractTextFromImageFlow = ai.defineFlow(
     outputSchema: ExtractTextFromImageOutputSchema,
   },
   async input => {
-    const {output} = await extractTextFromImagePrompt(input);
+    const {output} = await extractTextFromImagePrompt(input, {
+      model: 'googleai/gemini-2.5-flash',
+    });
     return output!;
   }
 );
