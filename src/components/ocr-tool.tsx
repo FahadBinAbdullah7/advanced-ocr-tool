@@ -157,7 +157,7 @@ export function OcrTool() {
     if (file.type === 'application/pdf') {
       const pdf = await pdfjs.getDocument(URL.createObjectURL(file)).promise;
       const page = await pdf.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 1.5 });
+      const viewport = page.getViewport({ scale: 2.0 }); // Use a higher scale for better quality
       
       tempCanvas.height = viewport.height;
       tempCanvas.width = viewport.width;
@@ -209,8 +209,10 @@ export function OcrTool() {
           croppedCanvas.height = cropHeight;
           const croppedCtx = croppedCanvas.getContext('2d');
           
-          croppedCtx?.drawImage(sourceImage, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-          dataUri = croppedCanvas.toDataURL();
+          if (croppedCtx) {
+            croppedCtx.drawImage(sourceImage, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+            dataUri = croppedCanvas.toDataURL();
+          }
         }
     }
 
@@ -265,8 +267,12 @@ export function OcrTool() {
     if (!imageContainerRef.current) return;
     setIsSelecting(true);
     const rect = imageContainerRef.current.getBoundingClientRect();
-    setStartPoint({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-    setSelection(null);
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    setStartPoint({ x, y });
+    // Reset selection immediately on new mousedown
+    setSelection({x, y, width: 0, height: 0});
   };
 
   const handleMouseMove = (e: MouseEvent<HTMLDivElement>) => {
@@ -387,7 +393,7 @@ export function OcrTool() {
             </Button>
             <Button
               onClick={() => handleExtractText('selected')}
-              disabled={!fileName || isExtracting || !selection}
+              disabled={!fileName || isExtracting || !selection || selection.width === 0 || selection.height === 0}
               className="w-full"
               variant="outline"
             >
@@ -416,7 +422,7 @@ export function OcrTool() {
             <CardContent>
             <div 
               ref={imageContainerRef}
-              className="w-full h-full min-h-[60vh] bg-muted rounded-lg flex items-center justify-center overflow-auto border relative"
+              className="w-full h-full min-h-[60vh] bg-muted rounded-lg flex items-center justify-center overflow-auto border relative cursor-crosshair"
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
