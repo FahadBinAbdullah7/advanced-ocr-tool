@@ -19,6 +19,7 @@ import {
   performOcrCorrection,
   performImageRedraw,
   convertImageToBase64,
+  performOcr,
 } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,17 +37,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 
-const SAMPLE_TEXT = `This is a sample text in English.
-_Here is some sample text in Bangla_
-Our goal is to test the OCR capabilitis.
-The quick brown fox jumps ovre the lazy dog.
-Math equation: E = mc^2`;
-
-const SAMPLE_IMAGE_URL = "https://picsum.photos/800/600";
-
 export function OcrTool() {
+  const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [extractedText, setExtractedText] = useState<string>("");
+  const [isExtracting, setIsExtracting] = useState(false);
   const [isLoadingCorrection, setIsLoadingCorrection] = useState(false);
   const [correctionResult, setCorrectionResult] =
     useState<CorrectAndSummarizeTextOutput | null>(null);
@@ -63,19 +58,25 @@ export function OcrTool() {
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      setFile(file);
       setFileName(file.name);
       // Reset everything on new file upload
       setExtractedText("");
       setCorrectionResult(null);
-      setImageSrc("");
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImageSrc(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+
       setIsImageEnhanced(false);
       setBase64Image(null);
       setRedrawnImage(null);
     }
   };
 
-  const handleExtractText = () => {
-    if (!fileName) {
+  const handleExtractText = async () => {
+    if (!file) {
       toast({
         title: "No file uploaded",
         description: "Please upload a document or image first.",
@@ -83,14 +84,38 @@ export function OcrTool() {
       });
       return;
     }
-    // TODO: Implement actual text extraction from the uploaded file.
-    // For now, we'll just show a toast message.
-    setExtractedText("Text extraction from files is not yet implemented.");
-    setImageSrc("");
-    toast({
-      title: "Feature Not Implemented",
-      description: "Text and image extraction from files is a planned feature.",
-    });
+    setIsExtracting(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const dataUri = reader.result as string;
+        try {
+          const text = await performOcr(dataUri);
+          setExtractedText(text);
+          toast({
+            title: "Text Extracted",
+            description: "Successfully extracted text from the image.",
+          });
+        } catch (error) {
+          toast({
+            title: "Extraction Failed",
+            description:
+              "An error occurred while extracting text. Please try again.",
+            variant: "destructive",
+          });
+        } finally {
+          setIsExtracting(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+       toast({
+        title: "File Error",
+        description: "Could not read the uploaded file.",
+        variant: "destructive",
+      });
+      setIsExtracting(false);
+    }
   };
 
   const handleCorrectText = async () => {
@@ -213,11 +238,15 @@ export function OcrTool() {
             )}
             <Button
               onClick={handleExtractText}
-              disabled={!fileName}
+              disabled={!fileName || isExtracting}
               className="w-full"
             >
-              <ScanText />
-              Extract Content
+              {isExtracting ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <ScanText />
+              )}
+              {isExtracting ? "Extracting..." : "Extract Content"}
             </Button>
           </CardContent>
         </Card>
@@ -227,10 +256,10 @@ export function OcrTool() {
       <div className="lg:col-span-8">
         <Tabs defaultValue="text" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="text" disabled={!extractedText}>
+            <TabsTrigger value="text">
               <FileText className="mr-2" /> Extracted Text
             </TabsTrigger>
-            <TabsTrigger value="image" disabled={!imageSrc}>
+            <TabsTrigger value="image">
               <ImageIcon className="mr-2" /> Image Analysis
             </TabsTrigger>
           </TabsList>
@@ -413,5 +442,3 @@ export function OcrTool() {
     </div>
   );
 }
-
-    
