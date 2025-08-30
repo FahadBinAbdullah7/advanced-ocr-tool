@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, MouseEvent } from "react";
 import Image from "next/image";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
@@ -44,6 +44,13 @@ import { useToast } from "@/hooks/use-toast";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
+interface Selection {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export function OcrTool() {
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -62,6 +69,11 @@ export function OcrTool() {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imageContainerRef = useRef<HTMLDivElement>(null);
+
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(null);
 
 
   const { toast } = useToast();
@@ -76,6 +88,7 @@ export function OcrTool() {
       setCorrectionResult(null);
       setNumPages(null);
       setPageNumber(1);
+      setSelection(null);
 
       if (file.type.startsWith('image/')) {
         const reader = new FileReader();
@@ -107,7 +120,7 @@ export function OcrTool() {
       pageNumber + 1 >= (numPages || 0) ? numPages || 1 : pageNumber + 1
     );
 
-  const handleExtractText = async () => {
+  const handleExtractText = async (area: 'full' | 'selected') => {
     if (!file) {
       toast({
         title: "No file uploaded",
@@ -116,45 +129,98 @@ export function OcrTool() {
       });
       return;
     }
+     if (area === 'selected' && !selection) {
+      toast({
+        title: "No area selected",
+        description: "Please select an area on the document to extract text from.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsExtracting(true);
     
     let dataUri: string;
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+
+    if (!tempCtx) {
+       toast({
+        title: "Extraction Failed",
+        description: "Could not initialize canvas for extraction.",
+        variant: "destructive",
+      });
+      setIsExtracting(false);
+      return;
+    }
 
     if (file.type === 'application/pdf') {
-      const page = await (pdfjs.getDocument(URL.createObjectURL(file)).promise).then(pdf => pdf.getPage(pageNumber));
+      const pdf = await pdfjs.getDocument(URL.createObjectURL(file)).promise;
+      const page = await pdf.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 1.5 });
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        setIsExtracting(false);
-        return;
-      }
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
+      
+      tempCanvas.height = viewport.height;
+      tempCanvas.width = viewport.width;
+
       const renderContext = {
-        canvasContext: canvas.getContext('2d')!,
+        canvasContext: tempCtx,
         viewport: viewport,
       };
       await page.render(renderContext).promise;
-      dataUri = canvas.toDataURL();
-
+      dataUri = tempCanvas.toDataURL();
     } else {
-       const reader = new FileReader();
-       const readerPromise = new Promise<string>((resolve, reject) => {
-         reader.onloadend = () => {
-           resolve(reader.result as string)
-         };
-         reader.onerror = reject;
-       });
-       reader.readAsDataURL(file);
-       dataUri = await readerPromise;
+      const img = new window.Image();
+      const imgPromise = new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = imageSrc;
+      });
+      await imgPromise;
+      
+      tempCanvas.width = img.naturalWidth;
+      tempCanvas.height = img.naturalHeight;
+      tempCtx.drawImage(img, 0, 0);
+      dataUri = tempCanvas.toDataURL();
     }
+
+    if (area === 'selected' && selection) {
+        const imageElement = imageContainerRef.current?.querySelector(isPdf ? 'canvas' : 'img');
+        if (imageElement) {
+          const { naturalWidth, naturalHeight } = imageElement as (HTMLCanvasElement | HTMLImageElement & {naturalWidth: number, naturalHeight: number});
+          const { clientWidth, clientHeight } = imageElement;
+          
+          const scaleX = naturalWidth / clientWidth;
+          const scaleY = naturalHeight / clientHeight;
+
+          const cropX = selection.x * scaleX;
+          const cropY = selection.y * scaleY;
+          const cropWidth = selection.width * scaleX;
+          const cropHeight = selection.height * scaleY;
+
+          const croppedCanvas = document.createElement('canvas');
+          croppedCanvas.width = cropWidth;
+          croppedCanvas.height = cropHeight;
+          const croppedCtx = croppedCanvas.getContext('2d');
+          
+          const sourceImage = new window.Image();
+          const sourceImagePromise = new Promise((resolve) => {
+            sourceImage.onload = resolve;
+            sourceImage.src = dataUri;
+          });
+          await sourceImagePromise;
+
+          croppedCtx?.drawImage(sourceImage, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+          dataUri = croppedCanvas.toDataURL();
+        }
+    }
+
 
     try {
       const text = await performOcr(dataUri);
       setExtractedText(text);
       toast({
         title: "Text Extracted",
-        description: "Successfully extracted text from the image.",
+        description: `Successfully extracted text from the ${area === 'selected' ? 'selected area' : 'full page'}.`,
       });
     } catch (error) {
       toast({
@@ -165,6 +231,7 @@ export function OcrTool() {
       });
     } finally {
       setIsExtracting(false);
+      setSelection(null);
     }
   };
 
@@ -194,38 +261,33 @@ export function OcrTool() {
     }
   };
 
-  const handleEnhanceImage = () => {
-    if (!imageSrc) {
-      toast({
-        title: "No image found",
-        description: "Please extract an image from a document first.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setIsImageEnhanced(!isImageEnhanced);
+    const handleMouseDown = (e: MouseEvent<HTMLDivElement>) => {
+    if (!imageContainerRef.current) return;
+    setIsSelecting(true);
+    const rect = imageContainerRef.current.getBoundingClientRect();
+    setStartPoint({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    setSelection(null);
   };
 
-  const handleConvertToBase64 = async () => {
-    if (!imageSrc) {
-      toast({
-        title: "No image found",
-        description: "Please extract an image from a document first.",
-        variant: "destructive",
-      });
-      return;
-    }
-    try {
-      const base64 = await convertImageToBase64(redrawnImage || imageSrc);
-      setBase64Image(base64);
-    } catch (error) {
-      toast({
-        title: "Conversion Failed",
-        description: "Could not convert image to Base64.",
-        variant: "destructive",
-      });
-    }
+  const handleMouseMove = (e: MouseEvent<HTMLDivElement>) => {
+    if (!isSelecting || !startPoint || !imageContainerRef.current) return;
+    const rect = imageContainerRef.current.getBoundingClientRect();
+    const currentX = e.clientX - rect.left;
+    const currentY = e.clientY - rect.top;
+
+    const x = Math.min(startPoint.x, currentX);
+    const y = Math.min(startPoint.y, currentY);
+    const width = Math.abs(startPoint.x - currentX);
+    const height = Math.abs(startPoint.y - currentY);
+    
+    setSelection({ x, y, width, height });
   };
+
+  const handleMouseUp = () => {
+    setIsSelecting(false);
+    setStartPoint(null);
+  };
+
 
   const handleRedrawImage = async () => {
     if (!imageSrc) {
@@ -253,7 +315,7 @@ export function OcrTool() {
   };
   
   const copyToClipboard = () => {
-    const textToCopy = correctionResult?.correctedText || extractedText || base64Image;
+    const textToCopy = correctionResult?.correctedText || extractedText;
     if (textToCopy) {
       navigator.clipboard.writeText(textToCopy);
       setCopied(true);
@@ -312,24 +374,29 @@ export function OcrTool() {
           </CardHeader>
           <CardContent className="space-y-2">
              <Button
-              onClick={handleExtractText}
+              onClick={() => handleExtractText('full')}
               disabled={!fileName || isExtracting}
               className="w-full"
             >
-              {isExtracting ? (
+              {isExtracting && !selection ? (
                 <Loader2 className="animate-spin" />
               ) : (
                 <ScanText />
               )}
-              {isExtracting ? "Extracting..." : "Extract Full Page"}
+              {isExtracting && !selection ? "Extracting..." : "Extract Full Page"}
             </Button>
             <Button
-              onClick={() => toast({ title: "Coming Soon!", description: "Area selection will be implemented soon."})}
-              disabled={!fileName || isExtracting}
+              onClick={() => handleExtractText('selected')}
+              disabled={!fileName || isExtracting || !selection}
               className="w-full"
               variant="outline"
             >
-              Extract Selected Area
+              {isExtracting && selection ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <ScanText />
+              )}
+              {isExtracting && selection ? "Extracting..." : "Extract Selected Area"}
             </Button>
           </CardContent>
         </Card>
@@ -347,7 +414,14 @@ export function OcrTool() {
                 </CardTitle>
             </CardHeader>
             <CardContent>
-            <div className="w-full h-full min-h-[60vh] bg-muted rounded-lg flex items-center justify-center overflow-auto border">
+            <div 
+              ref={imageContainerRef}
+              className="w-full h-full min-h-[60vh] bg-muted rounded-lg flex items-center justify-center overflow-auto border relative"
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+            >
                 {isPdf && file ? (
                     <Document file={file} onLoadSuccess={onDocumentLoadSuccess}>
                     <Page pageNumber={pageNumber} renderTextLayer={false} />
@@ -364,6 +438,17 @@ export function OcrTool() {
                 />
                 ) : (
                 <p className="text-muted-foreground">Document or image will appear here</p>
+                )}
+                 {selection && (
+                  <div
+                    className="absolute border-2 border-dashed border-primary bg-primary/20 pointer-events-none"
+                    style={{
+                      left: `${selection.x}px`,
+                      top: `${selection.y}px`,
+                      width: `${selection.width}px`,
+                      height: `${selection.height}px`,
+                    }}
+                  />
                 )}
             </div>
             </CardContent>
