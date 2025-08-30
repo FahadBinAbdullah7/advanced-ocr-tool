@@ -1,7 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Image from "next/image";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/esm/Page/AnnotationLayer.css";
+import "react-pdf/dist/esm/Page/TextLayer.css";
+
 import {
   Upload,
   FileText,
@@ -13,6 +17,8 @@ import {
   Bot,
   Clipboard,
   Check,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type { CorrectAndSummarizeTextOutput } from "@/ai/flows/correct-and-summarize-text";
 import {
@@ -37,6 +43,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+
 export function OcrTool() {
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -52,6 +60,10 @@ export function OcrTool() {
   const [redrawnImage, setRedrawnImage] = useState<string | null>(null);
   const [isLoadingRedraw, setIsLoadingRedraw] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [numPages, setNumPages] = useState<number | null>(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
 
   const { toast } = useToast();
 
@@ -63,17 +75,38 @@ export function OcrTool() {
       // Reset everything on new file upload
       setExtractedText("");
       setCorrectionResult(null);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImageSrc(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      setNumPages(null);
+      setPageNumber(1);
+
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setImageSrc(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        setImageSrc("");
+      }
+
 
       setIsImageEnhanced(false);
       setBase64Image(null);
       setRedrawnImage(null);
     }
   };
+
+  const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+    setNumPages(numPages);
+    setPageNumber(1);
+  };
+  
+  const goToPrevPage = () =>
+    setPageNumber(pageNumber - 1 <= 1 ? 1 : pageNumber - 1);
+
+  const goToNextPage = () =>
+    setPageNumber(
+      pageNumber + 1 >= (numPages || 0) ? numPages || 1 : pageNumber + 1
+    );
 
   const handleExtractText = async () => {
     if (!file) {
@@ -85,35 +118,53 @@ export function OcrTool() {
       return;
     }
     setIsExtracting(true);
-    try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const dataUri = reader.result as string;
-        try {
-          const text = await performOcr(dataUri);
-          setExtractedText(text);
-          toast({
-            title: "Text Extracted",
-            description: "Successfully extracted text from the image.",
-          });
-        } catch (error) {
-          toast({
-            title: "Extraction Failed",
-            description:
-              "An error occurred while extracting text. Please try again.",
-            variant: "destructive",
-          });
-        } finally {
-          setIsExtracting(false);
-        }
+    
+    let dataUri: string;
+
+    if (file.type === 'application/pdf') {
+      const page = await (pdfjs.getDocument(URL.createObjectURL(file)).promise).then(pdf => pdf.getPage(pageNumber));
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        setIsExtracting(false);
+        return;
+      }
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+      const renderContext = {
+        canvasContext: canvas.getContext('2d')!,
+        viewport: viewport,
       };
-      reader.readAsDataURL(file);
+      await page.render(renderContext).promise;
+      dataUri = canvas.toDataURL();
+
+    } else {
+       const reader = new FileReader();
+       const readerPromise = new Promise<string>((resolve, reject) => {
+         reader.onloadend = () => {
+           resolve(reader.result as string)
+         };
+         reader.onerror = reject;
+       });
+       reader.readAsDataURL(file);
+       dataUri = await readerPromise;
+    }
+
+    try {
+      const text = await performOcr(dataUri);
+      setExtractedText(text);
+      toast({
+        title: "Text Extracted",
+        description: "Successfully extracted text from the image.",
+      });
     } catch (error) {
-       toast({
-        title: "File Error",
-        description: "Could not read the uploaded file.",
+      toast({
+        title: "Extraction Failed",
+        description:
+          "An error occurred while extracting text. Please try again.",
         variant: "destructive",
       });
+    } finally {
       setIsExtracting(false);
     }
   };
@@ -207,11 +258,18 @@ export function OcrTool() {
       navigator.clipboard.writeText(base64Image);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } else if (extractedText) {
+      navigator.clipboard.writeText(extractedText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
+  const isPdf = file?.type === 'application/pdf';
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">
+       <canvas ref={canvasRef} style={{ display: 'none' }} />
       {/* Left Column: Upload and Controls */}
       <div className="lg:col-span-4 space-y-6">
         <Card>
@@ -260,7 +318,7 @@ export function OcrTool() {
               <FileText className="mr-2" /> Extracted Text
             </TabsTrigger>
             <TabsTrigger value="image">
-              <ImageIcon className="mr-2" /> Image Analysis
+              <ImageIcon className="mr-2" /> Document View
             </TabsTrigger>
           </TabsList>
           <TabsContent value="text">
@@ -271,17 +329,23 @@ export function OcrTool() {
                     <FileText className="w-5 h-5" />
                     2. Review & Correct Text
                   </span>
-                  <Button
-                    onClick={handleCorrectText}
-                    disabled={!extractedText || isLoadingCorrection}
-                  >
-                    {isLoadingCorrection ? (
-                      <Loader2 className="animate-spin" />
-                    ) : (
-                      <Sparkles />
-                    )}
-                    Correct with AI
-                  </Button>
+                   <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="sm" onClick={copyToClipboard} disabled={!extractedText}>
+                        {copied ? <Check className="w-4 h-4 text-green-500" /> : <Clipboard className="w-4 h-4" />}
+                        <span className="ml-2">{copied ? "Copied!" : "Copy Text"}</span>
+                    </Button>
+                    <Button
+                      onClick={handleCorrectText}
+                      disabled={!extractedText || isLoadingCorrection}
+                    >
+                      {isLoadingCorrection ? (
+                        <Loader2 className="animate-spin" />
+                      ) : (
+                        <Sparkles />
+                      )}
+                      Correct with AI
+                    </Button>
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -363,17 +427,34 @@ export function OcrTool() {
           <TabsContent value="image">
             <Card>
               <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <ImageIcon className="w-5 h-5" />
-                    3. Analyze & Enhance Image
+                  <CardTitle className="flex items-center justify-between">
+                     <span className="flex items-center gap-2">
+                        <ImageIcon className="w-5 h-5" />
+                        3. Analyze & Enhance
+                      </span>
+                      {isPdf && numPages && (
+                      <div className="flex items-center gap-2">
+                          <Button onClick={goToPrevPage} disabled={pageNumber <= 1} variant="outline" size="icon">
+                              <ChevronLeft />
+                          </Button>
+                          <span>Page {pageNumber} of {numPages}</span>
+                          <Button onClick={goToNextPage} disabled={pageNumber >= numPages} variant="outline" size="icon">
+                              <ChevronRight />
+                          </Button>
+                      </div>
+                    )}
                   </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="w-full aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden border">
-                  {imageSrc ? (
+                  {isPdf && file ? (
+                     <Document file={file} onLoadSuccess={onDocumentLoadSuccess}>
+                        <Page pageNumber={pageNumber} />
+                     </Document>
+                  ) : imageSrc ? (
                     <Image
                       src={redrawnImage || imageSrc}
-                      alt="Cropped image from document"
+                      alt="Uploaded content"
                       data-ai-hint="abstract design"
                       width={800}
                       height={600}
@@ -381,31 +462,33 @@ export function OcrTool() {
                       unoptimized={!!redrawnImage}
                     />
                   ) : (
-                    <p className="text-muted-foreground">Image will appear here</p>
+                    <p className="text-muted-foreground">Document or image will appear here</p>
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <Button onClick={handleEnhanceImage} disabled={!imageSrc}>
-                    <Sparkles />
-                    {isImageEnhanced ? "Remove Enhance" : "Enhance"}
-                  </Button>
-                  <Button onClick={handleConvertToBase64} disabled={!imageSrc}>
-                    <Code />
-                    To Base64
-                  </Button>
-                  <Button
-                    onClick={handleRedrawImage}
-                    disabled={!imageSrc || isLoadingRedraw}
-                  >
-                    {isLoadingRedraw ? (
-                      <Loader2 className="animate-spin" />
-                    ) : (
-                      <Bot />
-                    )}
-                    Redraw with AI
-                  </Button>
-                </div>
+                 {!isPdf && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <Button onClick={handleEnhanceImage} disabled={!imageSrc}>
+                        <Sparkles />
+                        {isImageEnhanced ? "Remove Enhance" : "Enhance"}
+                      </Button>
+                      <Button onClick={handleConvertToBase64} disabled={!imageSrc}>
+                        <Code />
+                        To Base64
+                      </Button>
+                      <Button
+                        onClick={handleRedrawImage}
+                        disabled={!imageSrc || isLoadingRedraw}
+                      >
+                        {isLoadingRedraw ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          <Bot />
+                        )}
+                        Redraw with AI
+                      </Button>
+                    </div>
+                 )}
                 
                 {isLoadingRedraw && (
                     <div className="flex items-center justify-center p-8">
@@ -416,7 +499,7 @@ export function OcrTool() {
                   </div>
                 )}
 
-                {base64Image && (
+                {base64Image && !isPdf && (
                   <div className="space-y-2 pt-4">
                       <div className="flex justify-between items-center">
                       <Label htmlFor="base64-output" className="text-lg font-semibold">

@@ -1,0 +1,32 @@
+diff --git a/node_modules/pdfjs-dist/build/pdf.mjs b/node_modules/pdfjs-dist/build/pdf.mjs
+index 920531e..a70d1bb 100644
+--- a/node_modules/pdfjs-dist/build/pdf.mjs
++++ b/node_modules/pdfjs-dist/build/pdf.mjs
+@@ -9920,7 +9920,14 @@ if (typeof PDFJSDev === "undefined" || !PDFJSDev.test("PROD")) {
+   Promise.allSettled ??= function (promises) {
+     return Promise.all(promises.map(p => p.then(value => ({
+       status: "fulfilled",
+-      value
++      value,
++      reason: undefined
++    }), reason => ({
++      status: "rejected",
++      value: undefined,
++      reason
+     }))));
+   };
++  Promise.withResolvers ??= function () {
++    let resolve, reject;
++    const promise = new Promise((res, rej) => {
++      resolve = res;
++      reject = rej;
++    });
++    return {
++      promise,
++      resolve,
++      reject
++    };
++  };
+ }
+ var AbortException = class extends Error {
+   constructor(message) {
