@@ -143,38 +143,81 @@ export function OcrTool() {
 
   const handleCrop = async () => {
     if (!selection || !imageContainerRef.current) return;
+  
     try {
-      const displayedElement = imageContainerRef.current?.querySelector(isPdf ? "canvas" : "img") as HTMLElement | null;
-      if (!displayedElement) throw new Error("Could not find the document view element.");
-
+      const container = imageContainerRef.current;
+      const displayedElement = container.querySelector(
+        isPdf ? "canvas" : "img"
+      ) as HTMLElement | null;
+  
+      if (!displayedElement) {
+        throw new Error("Could not find the document view element.");
+      }
+  
       const fullCanvas = await getSourceCanvas();
-      const displayedRect = displayedElement.getBoundingClientRect();
-      const scaleX = fullCanvas.width / displayedRect.width;
-      const scaleY = fullCanvas.height / displayedRect.height;
+      const naturalWidth = fullCanvas.width;
+      const naturalHeight = fullCanvas.height;
+  
+      const containerRect = container.getBoundingClientRect();
       
-      const cropX = selection.x * scaleX;
-      const cropY = selection.y * scaleY;
-      const cropWidth = selection.width * scaleX;
-      const cropHeight = selection.height * scaleY;
-      
-      const croppedCanvas = document.createElement("canvas");
-      croppedCanvas.width = cropWidth;
-      croppedCanvas.height = cropHeight;
-      const croppedCtx = croppedCanvas.getContext("2d");
-      if (!croppedCtx) throw new Error("Could not create cropped canvas context.");
+      const naturalAspectRatio = naturalWidth / naturalHeight;
+      const containerAspectRatio = containerRect.width / containerRect.height;
+  
+      let renderedWidth, renderedHeight, offsetX, offsetY;
+  
+      if (naturalAspectRatio > containerAspectRatio) {
+        renderedWidth = containerRect.width;
+        renderedHeight = renderedWidth / naturalAspectRatio;
+        offsetX = 0;
+        offsetY = (containerRect.height - renderedHeight) / 2;
+      } else {
+        renderedHeight = containerRect.height;
+        renderedWidth = renderedHeight * naturalAspectRatio;
+        offsetY = 0;
+        offsetX = (containerRect.width - renderedWidth) / 2;
+      }
+  
+      const scale = naturalWidth / renderedWidth;
+  
+      const cropX = (selection.x - offsetX) * scale;
+      const cropY = (selection.y - offsetY) * scale;
+      const cropWidth = selection.width * scale;
+      const cropHeight = selection.height * scale;
+  
+      if (cropX < 0 || cropY < 0 || cropX + cropWidth > naturalWidth || cropY + cropHeight > naturalHeight) {
+         toast({
+          title: "Crop Warning",
+          description: "Selection is partially outside the image boundaries. Adjusting crop.",
+          variant: "default",
+        });
+      }
 
+      const finalCropX = Math.max(0, cropX);
+      const finalCropY = Math.max(0, cropY);
+      const finalCropWidth = Math.min(naturalWidth - finalCropX, cropWidth);
+      const finalCropHeight = Math.min(naturalHeight - finalCropY, cropHeight);
+
+      const croppedCanvas = document.createElement("canvas");
+      croppedCanvas.width = finalCropWidth;
+      croppedCanvas.height = finalCropHeight;
+      const croppedCtx = croppedCanvas.getContext("2d");
+  
+      if (!croppedCtx) {
+        throw new Error("Could not create cropped canvas context.");
+      }
+  
       croppedCtx.drawImage(
         fullCanvas,
-        cropX,
-        cropY,
-        cropWidth,
-        cropHeight,
+        finalCropX,
+        finalCropY,
+        finalCropWidth,
+        finalCropHeight,
         0,
         0,
-        cropWidth,
-        cropHeight
+        finalCropWidth,
+        finalCropHeight
       );
-
+  
       setCroppedImageSrc(croppedCanvas.toDataURL());
       setSelection(null);
       toast({
@@ -183,7 +226,8 @@ export function OcrTool() {
       });
     } catch (error) {
       console.error(error);
-      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+      const errorMessage =
+        error instanceof Error ? error.message : "An unknown error occurred.";
       toast({
         title: "Crop Failed",
         description: `An error occurred while cropping: ${errorMessage}`,
@@ -317,7 +361,7 @@ export function OcrTool() {
   };
 
   const isPdf = file?.type === 'application/pdf';
-  const hasSelection = selection && selection.width > 0 && selection.height > 0;
+  const hasSelection = selection && selection.width > 5 && selection.height > 5;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">
@@ -386,7 +430,7 @@ export function OcrTool() {
             </Button>
             {croppedImageSrc && (
               <Button
-                onClick={() => setCroppedImageSrc(null)}
+                onClick={() => {setCroppedImageSrc(null); setExtractedText(""); setCorrectionResult(null);}}
                 className="w-full"
                 variant="ghost"
               >
@@ -412,7 +456,7 @@ export function OcrTool() {
             <CardContent>
             <div 
               ref={imageContainerRef}
-              className={`w-full h-full min-h-[60vh] bg-muted rounded-lg flex items-center justify-center overflow-auto border relative ${!croppedImageSrc ? "cursor-crosshair" : ""}`}
+              className={`w-full h-full min-h-[60vh] bg-muted rounded-lg flex items-center justify-center overflow-hidden border relative ${!croppedImageSrc ? "cursor-crosshair" : ""}`}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
