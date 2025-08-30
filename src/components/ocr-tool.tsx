@@ -24,7 +24,6 @@ import type { CorrectAndSummarizeTextOutput } from "@/ai/flows/correct-and-summa
 import {
   performOcrCorrection,
   performImageRedraw,
-  convertImageToBase64,
   performOcr,
 } from "@/app/actions";
 import { Button } from "@/components/ui/button";
@@ -143,63 +142,59 @@ export function OcrTool() {
     let dataUri: string | undefined;
 
     try {
-        const imageElement = imageContainerRef.current?.querySelector(isPdf ? 'canvas' : 'img') as HTMLElement | null;
-    
-        if (!imageElement) {
+        const displayedElement = imageContainerRef.current?.querySelector(isPdf ? 'canvas' : 'img') as HTMLElement | null;
+
+        if (!displayedElement) {
             throw new Error("Could not find the document view element.");
         }
-    
-        const fullResolutionCanvas = document.createElement('canvas');
-        const fullResolutionCtx = fullResolutionCanvas.getContext('2d');
-    
-        if (!fullResolutionCtx) {
-            throw new Error("Could not create canvas context.");
-        }
-    
+
+        const fullCanvas = document.createElement('canvas');
+        const fullCtx = fullCanvas.getContext('2d');
+        if (!fullCtx) throw new Error("Canvas context is not available.");
+
         if (isPdf) {
             const pdfDoc = await pdfjs.getDocument(URL.createObjectURL(file)).promise;
             const pdfPage = await pdfDoc.getPage(pageNumber);
-            const viewport = pdfPage.getViewport({ scale: 2.0 }); // Use a higher scale for better quality
-            fullResolutionCanvas.width = viewport.width;
-            fullResolutionCanvas.height = viewport.height;
-            await pdfPage.render({ canvasContext: fullResolutionCtx, viewport }).promise;
+            const viewport = pdfPage.getViewport({ scale: 2.0 }); // Render at high quality
+            fullCanvas.width = viewport.width;
+            fullCanvas.height = viewport.height;
+            await pdfPage.render({ canvasContext: fullCtx, viewport }).promise;
         } else {
             const img = new window.Image();
-            const imgPromise = new Promise<void>((resolve, reject) => {
+            await new Promise<void>((resolve, reject) => {
                 img.onload = () => resolve();
                 img.onerror = reject;
-                img.src = imageSrc; // Use original image source
+                img.src = imageSrc;
             });
-            await imgPromise;
-            fullResolutionCanvas.width = img.naturalWidth;
-            fullResolutionCanvas.height = img.naturalHeight;
-            fullResolutionCtx.drawImage(img, 0, 0);
+            fullCanvas.width = img.naturalWidth;
+            fullCanvas.height = img.naturalHeight;
+            fullCtx.drawImage(img, 0, 0);
         }
-    
+
         if (area === 'full') {
-            dataUri = fullResolutionCanvas.toDataURL();
+            dataUri = fullCanvas.toDataURL();
         } else if (area === 'selected' && selection) {
-            const displayedRect = imageElement.getBoundingClientRect();
-    
-            const scaleX = fullResolutionCanvas.width / displayedRect.width;
-            const scaleY = fullResolutionCanvas.height / displayedRect.height;
-    
+            const displayedRect = displayedElement.getBoundingClientRect();
+            
+            // Calculate the scaling factor between the displayed size and the full-resolution canvas size
+            const scaleX = fullCanvas.width / displayedRect.width;
+            const scaleY = fullCanvas.height / displayedRect.height;
+            
+            // Apply the scaling factor to the selection coordinates
             const cropX = selection.x * scaleX;
             const cropY = selection.y * scaleY;
             const cropWidth = selection.width * scaleX;
             const cropHeight = selection.height * scaleY;
-    
+            
             const croppedCanvas = document.createElement('canvas');
             croppedCanvas.width = cropWidth;
             croppedCanvas.height = cropHeight;
             const croppedCtx = croppedCanvas.getContext('2d');
-    
-            if (!croppedCtx) {
-                throw new Error("Could not create cropped canvas context.");
-            }
-    
+            if (!croppedCtx) throw new Error("Could not create cropped canvas context.");
+
+            // Draw the cropped portion from the full-resolution canvas
             croppedCtx.drawImage(
-                fullResolutionCanvas,
+                fullCanvas,
                 cropX,
                 cropY,
                 cropWidth,
@@ -211,7 +206,7 @@ export function OcrTool() {
             );
             dataUri = croppedCanvas.toDataURL();
         }
-    
+
         if (!dataUri) {
             throw new Error("Could not generate image data for OCR.");
         }
@@ -572,3 +567,5 @@ export function OcrTool() {
     </div>
   );
 }
+
+    
