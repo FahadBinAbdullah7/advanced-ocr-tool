@@ -186,8 +186,15 @@ export function OcrTool() {
     if (area === 'selected' && selection) {
         const imageElement = imageContainerRef.current?.querySelector(isPdf ? 'canvas' : 'img');
         if (imageElement) {
-          const { naturalWidth, naturalHeight } = imageElement as (HTMLCanvasElement | HTMLImageElement & {naturalWidth: number, naturalHeight: number});
-          const { clientWidth, clientHeight } = imageElement;
+          const sourceImage = new window.Image();
+          const sourceImagePromise = new Promise<void>((resolve) => {
+            sourceImage.onload = () => resolve();
+            sourceImage.src = dataUri;
+          });
+          await sourceImagePromise;
+
+          const { width: clientWidth, height: clientHeight } = imageElement.getBoundingClientRect();
+          const { naturalWidth, naturalHeight } = sourceImage;
           
           const scaleX = naturalWidth / clientWidth;
           const scaleY = naturalHeight / clientHeight;
@@ -202,13 +209,6 @@ export function OcrTool() {
           croppedCanvas.height = cropHeight;
           const croppedCtx = croppedCanvas.getContext('2d');
           
-          const sourceImage = new window.Image();
-          const sourceImagePromise = new Promise((resolve) => {
-            sourceImage.onload = resolve;
-            sourceImage.src = dataUri;
-          });
-          await sourceImagePromise;
-
           croppedCtx?.drawImage(sourceImage, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
           dataUri = croppedCanvas.toDataURL();
         }
@@ -562,3 +562,5 @@ export function OcrTool() {
     </div>
   );
 }
+
+    
