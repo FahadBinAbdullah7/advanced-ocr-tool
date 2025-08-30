@@ -1,0 +1,65 @@
+'use server';
+/**
+ * @fileOverview An AI agent that enhances and redraws images.
+ *
+ * - enhanceAndRedrawImage - A function that handles the image enhancement and redrawing process.
+ * - EnhanceAndRedrawImageInput - The input type for the enhanceAndRedrawImage function.
+ * - EnhanceAndRedrawImageOutput - The return type for the enhanceAndRedrawImage function.
+ */
+
+import {ai} from '@/ai/genkit';
+import {z} from 'genkit';
+
+const EnhanceAndRedrawImageInputSchema = z.object({
+  photoDataUri: z
+    .string()
+    .describe(
+      "A low-quality image, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
+    ),
+});
+export type EnhanceAndRedrawImageInput = z.infer<typeof EnhanceAndRedrawImageInputSchema>;
+
+const EnhanceAndRedrawImageOutputSchema = z.object({
+  redrawnImage: z
+    .string()
+    .describe('The AI-redrawn, enhanced version of the image, as a data URI.'),
+});
+export type EnhanceAndRedrawImageOutput = z.infer<typeof EnhanceAndRedrawImageOutputSchema>;
+
+export async function enhanceAndRedrawImage(input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput> {
+  return enhanceAndRedrawImageFlow(input);
+}
+
+const prompt = ai.definePrompt({
+  name: 'enhanceAndRedrawImagePrompt',
+  input: {schema: EnhanceAndRedrawImageInputSchema},
+  output: {schema: EnhanceAndRedrawImageOutputSchema},
+  prompt: `You are an AI image enhancer and redrawer.  You will take a low-quality image and redraw it to produce an enhanced version.
+
+  The image is provided as a data URI.
+
+  Image: {{media url=photoDataUri}}
+  `,
+});
+
+const enhanceAndRedrawImageFlow = ai.defineFlow(
+  {
+    name: 'enhanceAndRedrawImageFlow',
+    inputSchema: EnhanceAndRedrawImageInputSchema,
+    outputSchema: EnhanceAndRedrawImageOutputSchema,
+  },
+  async input => {
+    const {media} = await ai.generate({
+      prompt: [
+        {media: {url: input.photoDataUri}},
+        {text: 'Redraw this image to be high quality'},
+      ],
+      model: 'googleai/gemini-2.0-flash-preview-image-generation',
+      config: {
+        responseModalities: ['TEXT', 'IMAGE'], // MUST provide both TEXT and IMAGE, IMAGE only won't work
+      },
+    });
+
+    return {redrawnImage: media.url!};
+  }
+);
