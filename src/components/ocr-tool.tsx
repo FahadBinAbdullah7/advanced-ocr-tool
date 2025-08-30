@@ -146,20 +146,11 @@ export function OcrTool() {
   
     try {
       const container = imageContainerRef.current;
-      const displayedElement = container.querySelector(
-        isPdf ? "canvas" : "img"
-      ) as HTMLElement | null;
-  
-      if (!displayedElement) {
-        throw new Error("Could not find the document view element.");
-      }
-  
       const fullCanvas = await getSourceCanvas();
       const naturalWidth = fullCanvas.width;
       const naturalHeight = fullCanvas.height;
   
       const containerRect = container.getBoundingClientRect();
-      
       const naturalAspectRatio = naturalWidth / naturalHeight;
       const containerAspectRatio = containerRect.width / containerRect.height;
   
@@ -184,19 +175,11 @@ export function OcrTool() {
       const cropWidth = selection.width * scale;
       const cropHeight = selection.height * scale;
   
-      if (cropX < 0 || cropY < 0 || cropX + cropWidth > naturalWidth || cropY + cropHeight > naturalHeight) {
-         toast({
-          title: "Crop Warning",
-          description: "Selection is partially outside the image boundaries. Adjusting crop.",
-          variant: "default",
-        });
-      }
-
       const finalCropX = Math.max(0, cropX);
       const finalCropY = Math.max(0, cropY);
       const finalCropWidth = Math.min(naturalWidth - finalCropX, cropWidth);
       const finalCropHeight = Math.min(naturalHeight - finalCropY, cropHeight);
-
+  
       const croppedCanvas = document.createElement("canvas");
       croppedCanvas.width = finalCropWidth;
       croppedCanvas.height = finalCropHeight;
