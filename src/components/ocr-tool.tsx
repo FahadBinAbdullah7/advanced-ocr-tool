@@ -140,91 +140,120 @@ export function OcrTool() {
 
     setIsExtracting(true);
     
-    let dataUri: string;
-    const tempCanvas = document.createElement('canvas');
-    const tempCtx = tempCanvas.getContext('2d');
+    let dataUri: string | undefined;
 
-    if (!tempCtx) {
-       toast({
-        title: "Extraction Failed",
-        description: "Could not initialize canvas for extraction.",
-        variant: "destructive",
-      });
-      setIsExtracting(false);
-      return;
+    const imageElement = imageContainerRef.current?.querySelector(isPdf ? 'canvas' : 'img');
+
+    if (imageElement) {
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) {
+            toast({
+                title: "Extraction Failed",
+                description: "Could not initialize canvas for extraction.",
+                variant: "destructive",
+            });
+            setIsExtracting(false);
+            return;
+        }
+
+        if (isPdf && imageElement instanceof HTMLCanvasElement) {
+            // For PDFs, the displayed canvas is what we need.
+            tempCanvas.width = imageElement.width;
+            tempCanvas.height = imageElement.height;
+            tempCtx.drawImage(imageElement, 0, 0);
+            dataUri = tempCanvas.toDataURL();
+        } else if (!isPdf && imageElement instanceof HTMLImageElement) {
+            // For images, we draw the original image to a canvas to get its data.
+            const img = new window.Image();
+            const imgPromise = new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+                img.src = imageSrc;
+            });
+            await imgPromise;
+            
+            tempCanvas.width = img.naturalWidth;
+            tempCanvas.height = img.naturalHeight;
+            tempCtx.drawImage(img, 0, 0);
+            
+            // Adjust selection to natural image dimensions
+            const { width: clientWidth, height: clientHeight } = imageElement.getBoundingClientRect();
+            const scaleX = img.naturalWidth / clientWidth;
+            const scaleY = img.naturalHeight / clientHeight;
+
+            if (area === 'selected' && selection) {
+                const cropX = selection.x * scaleX;
+                const cropY = selection.y * scaleY;
+                const cropWidth = selection.width * scaleX;
+                const cropHeight = selection.height * scaleY;
+
+                const croppedCanvas = document.createElement('canvas');
+                croppedCanvas.width = cropWidth;
+                croppedCanvas.height = cropHeight;
+                const croppedCtx = croppedCanvas.getContext('2d');
+                if(croppedCtx) {
+                    croppedCtx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+                    dataUri = croppedCanvas.toDataURL();
+                }
+            } else {
+                dataUri = tempCanvas.toDataURL();
+            }
+        }
     }
 
-    if (file.type === 'application/pdf') {
-      const pdf = await pdfjs.getDocument(URL.createObjectURL(file)).promise;
-      const page = await pdf.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 2.0 }); // Use a higher scale for better quality
-      
-      tempCanvas.height = viewport.height;
-      tempCanvas.width = viewport.width;
-
-      const renderContext = {
-        canvasContext: tempCtx,
-        viewport: viewport,
-      };
-      await page.render(renderContext).promise;
-      dataUri = tempCanvas.toDataURL();
-    } else {
-      const img = new window.Image();
-      const imgPromise = new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = imageSrc;
-      });
-      await imgPromise;
-      
-      tempCanvas.width = img.naturalWidth;
-      tempCanvas.height = img.naturalHeight;
-      tempCtx.drawImage(img, 0, 0);
-      dataUri = tempCanvas.toDataURL();
+    if (!dataUri) {
+        if (file.type === 'application/pdf') {
+            const pdf = await pdfjs.getDocument(URL.createObjectURL(file)).promise;
+            const page = await pdf.getPage(pageNumber);
+            const viewport = page.getViewport({ scale: 2.0 });
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            if (tempCtx) {
+                tempCanvas.height = viewport.height;
+                tempCanvas.width = viewport.width;
+                await page.render({ canvasContext: tempCtx, viewport: viewport }).promise;
+                dataUri = tempCanvas.toDataURL();
+            }
+        } else {
+             dataUri = imageSrc;
+        }
     }
-
-    if (area === 'selected' && selection) {
-        const imageElement = imageContainerRef.current?.querySelector(isPdf ? 'canvas' : 'img');
-        if (imageElement) {
-          const sourceImage = new window.Image();
-          const sourceImagePromise = new Promise<void>((resolve) => {
+    
+    if (area === 'selected' && selection && isPdf) {
+        const sourceImage = new window.Image();
+        const sourceImagePromise = new Promise<void>((resolve) => {
             sourceImage.onload = () => resolve();
-            sourceImage.src = dataUri;
-          });
-          await sourceImagePromise;
+            sourceImage.src = dataUri!;
+        });
+        await sourceImagePromise;
 
-          const { width: clientWidth, height: clientHeight } = imageElement.getBoundingClientRect();
-          const { naturalWidth, naturalHeight } = sourceImage;
-          
-          const scaleX = naturalWidth / clientWidth;
-          const scaleY = naturalHeight / clientHeight;
+        const cropX = selection.x;
+        const cropY = selection.y;
+        const cropWidth = selection.width;
+        const cropHeight = selection.height;
 
-          const cropX = selection.x * scaleX;
-          const cropY = selection.y * scaleY;
-          const cropWidth = selection.width * scaleX;
-          const cropHeight = selection.height * scaleY;
-
-          const croppedCanvas = document.createElement('canvas');
-          croppedCanvas.width = cropWidth;
-          croppedCanvas.height = cropHeight;
-          const croppedCtx = croppedCanvas.getContext('2d');
-          
-          if (croppedCtx) {
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = cropWidth;
+        croppedCanvas.height = cropHeight;
+        const croppedCtx = croppedCanvas.getContext('2d');
+        
+        if (croppedCtx) {
             croppedCtx.drawImage(sourceImage, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
             dataUri = croppedCanvas.toDataURL();
-          }
         }
     }
 
 
     try {
-      const text = await performOcr(dataUri);
+      const text = await performOcr(dataUri!);
       setExtractedText(text);
       toast({
         title: "Text Extracted",
         description: `Successfully extracted text from the ${area === 'selected' ? 'selected area' : 'full page'}.`,
       });
     } catch (error) {
+      console.error(error);
       toast({
         title: "Extraction Failed",
         description:
@@ -568,5 +597,3 @@ export function OcrTool() {
     </div>
   );
 }
-
-    
