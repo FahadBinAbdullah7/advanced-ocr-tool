@@ -24,11 +24,13 @@ import {
   Sparkles,
 } from "lucide-react"
 import Link from "next/link"
+import { performImageRedraw } from "@/app/actions"
+import Image from "next/image"
 
 interface ProcessedImage {
   id: string
   originalCanvas: HTMLCanvasElement
-  enhancedCanvas?: HTMLCanvasElement
+  enhancedImageUrl?: string
   base64?: string
   mappedImageUrl?: string
   isProcessing?: boolean
@@ -171,7 +173,7 @@ export default function ImageProcessor() {
 
   // Convert canvas to base64 for API calls
   const canvasToBase64 = (canvas: HTMLCanvasElement): string => {
-    return canvas.toDataURL("image/png", 1.0).split(",")[1]
+    return canvas.toDataURL("image/png", 1.0)
   }
 
   // Enhance image quality
@@ -180,41 +182,11 @@ export default function ImageProcessor() {
 
     try {
       setIsProcessing(true)
-      setProcessingStatus("Enhancing image quality...")
+      setProcessingStatus("Submitting to AI for enhancement...")
       setProcessingProgress(30)
-
-      // Create enhanced canvas with improved quality
-      const enhancedCanvas = document.createElement("canvas")
-      const sourceCanvas = processedImage.originalCanvas
-
-      // Scale up for better quality
-      const scaleFactor = 2
-      enhancedCanvas.width = sourceCanvas.width * scaleFactor
-      enhancedCanvas.height = sourceCanvas.height * scaleFactor
-
-      const enhancedCtx = enhancedCanvas.getContext("2d")
-      if (!enhancedCtx) throw new Error("Could not get enhanced canvas context")
-
-      // Apply image enhancement techniques
-      enhancedCtx.imageSmoothingEnabled = true
-      enhancedCtx.imageSmoothingQuality = "high"
-
-      // Draw scaled up image
-      enhancedCtx.drawImage(sourceCanvas, 0, 0, enhancedCanvas.width, enhancedCanvas.height)
-
-      // Apply sharpening filter
-      const imageData = enhancedCtx.getImageData(0, 0, enhancedCanvas.width, enhancedCanvas.height)
-      const data = imageData.data
-
-      // Apply basic contrast enhancement
-      for (let i = 0; i < data.length; i += 4) {
-        // Increase contrast
-        data[i] = Math.min(255, Math.max(0, (data[i] - 128) * 1.2 + 128)) // Red
-        data[i + 1] = Math.min(255, Math.max(0, (data[i + 1] - 128) * 1.2 + 128)) // Green
-        data[i + 2] = Math.min(255, Math.max(0, (data[i + 2] - 128) * 1.2 + 128)) // Blue
-      }
-
-      enhancedCtx.putImageData(imageData, 0, 0)
+      
+      const imageUrl = canvasToBase64(processedImage.originalCanvas)
+      const redrawnImage = await performImageRedraw(imageUrl)
 
       setProcessingProgress(100)
       setProcessingStatus("Image enhancement completed!")
@@ -222,12 +194,12 @@ export default function ImageProcessor() {
       // Update processed image
       setProcessedImage({
         ...processedImage,
-        enhancedCanvas: enhancedCanvas,
+        enhancedImageUrl: redrawnImage,
       })
     } catch (error) {
       console.error("Image enhancement error:", error)
       setProcessingStatus("Image enhancement failed")
-      setFileError("Failed to enhance image. Please try again.")
+      setFileError("Failed to enhance image with AI. Please try again.")
     } finally {
       setIsProcessing(false)
       setProcessingProgress(0)
@@ -243,7 +215,7 @@ export default function ImageProcessor() {
       setProcessingStatus("Converting to Base64...")
       setProcessingProgress(50)
 
-      const canvas = processedImage.enhancedCanvas || processedImage.originalCanvas
+      const canvas = processedImage.originalCanvas
       const base64 = canvas.toDataURL("image/png", 1.0)
 
       setProcessingProgress(100)
@@ -273,9 +245,15 @@ export default function ImageProcessor() {
       setProcessingStatus("Creating AI-powered enhanced drawing...")
       setProcessingProgress(40)
 
-      const canvas = processedImage.enhancedCanvas || processedImage.originalCanvas
-      const imageBase64 = canvasToBase64(canvas)
-      const prompt = `Create an enhanced, improved version of this image. Analyze the visual content and recreate it with:
+      const canvas = processedImage.originalCanvas
+      const imageBase64 = canvas.toDataURL("image/png", 1.0).split(",")[1]
+
+      const apiResponse = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: imageBase64,
+          prompt: `Create an enhanced, improved version of this image. Analyze the visual content and recreate it with:
 
 1. **Better clarity and sharpness**
 2. **Enhanced colors and contrast** 
@@ -288,63 +266,16 @@ Generate a detailed description that can be used to create a superior version of
 Format your response as:
 ENHANCED_DESCRIPTION: [detailed description for creating enhanced version]
 IMPROVEMENT_NOTES: [specific enhancements made]
-ARTISTIC_STYLE: [recommended artistic approach]`
-
-      const apiResponse = await fetch("/api/ocr", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageBase64: imageBase64,
-          prompt: prompt,
+ARTISTIC_STYLE: [recommended artistic approach]`,
         }),
       })
 
       setProcessingProgress(80)
-      setProcessingStatus("Creating enhanced image...")
+      setProcessingStatus("Processing AI drawing...")
 
       if (apiResponse.ok) {
         const apiData = await apiResponse.json()
         const aiResponse = apiData.response || ""
-
-        // Create an enhanced version of the image programmatically
-        const enhancedCanvas = document.createElement("canvas")
-        const sourceCanvas = canvas
-
-        // Scale up for better quality
-        const scaleFactor = 3
-        enhancedCanvas.width = sourceCanvas.width * scaleFactor
-        enhancedCanvas.height = sourceCanvas.height * scaleFactor
-
-        const enhancedCtx = enhancedCanvas.getContext("2d")
-        if (!enhancedCtx) throw new Error("Could not get enhanced canvas context")
-
-        // Apply advanced enhancement techniques
-        enhancedCtx.imageSmoothingEnabled = true
-        enhancedCtx.imageSmoothingQuality = "high"
-
-        // Fill with white background
-        enhancedCtx.fillStyle = "white"
-        enhancedCtx.fillRect(0, 0, enhancedCanvas.width, enhancedCanvas.height)
-
-        // Draw scaled up image
-        enhancedCtx.drawImage(sourceCanvas, 0, 0, enhancedCanvas.width, enhancedCanvas.height)
-
-        // Apply advanced image processing
-        const imageData = enhancedCtx.getImageData(0, 0, enhancedCanvas.width, enhancedCanvas.height)
-        const data = imageData.data
-
-        // Enhanced processing: brightness, contrast, and sharpening
-        for (let i = 0; i < data.length; i += 4) {
-          // Enhance brightness and contrast
-          const brightness = 1.1
-          const contrast = 1.3
-
-          data[i] = Math.min(255, Math.max(0, (data[i] - 128) * contrast + 128 * brightness)) // Red
-          data[i + 1] = Math.min(255, Math.max(0, (data[i + 1] - 128) * contrast + 128 * brightness)) // Green
-          data[i + 2] = Math.min(255, Math.max(0, (data[i + 2] - 128) * contrast + 128 * brightness)) // Blue
-        }
-
-        enhancedCtx.putImageData(imageData, 0, 0)
 
         setProcessingProgress(100)
         setProcessingStatus("Enhanced image mapping completed!")
@@ -353,7 +284,6 @@ ARTISTIC_STYLE: [recommended artistic approach]`
         setProcessedImage({
           ...processedImage,
           mappedImageUrl: aiResponse,
-          enhancedCanvas: enhancedCanvas,
         })
       } else {
         throw new Error("Failed to get AI response")
@@ -572,20 +502,14 @@ ARTISTIC_STYLE: [recommended artistic approach]`
 
                   <TabsContent value="enhanced" className="mt-4">
                     <ScrollArea className="h-[400px]">
-                      {processedImage && processedImage.enhancedCanvas ? (
+                      {processedImage && processedImage.enhancedImageUrl ? (
                         <div className="space-y-4">
                           <div className="flex justify-center">
-                            <canvas
-                              ref={(canvas) => {
-                                if (canvas && processedImage.enhancedCanvas) {
-                                  const ctx = canvas.getContext("2d")
-                                  if (ctx) {
-                                    canvas.width = processedImage.enhancedCanvas.width
-                                    canvas.height = processedImage.enhancedCanvas.height
-                                    ctx.drawImage(processedImage.enhancedCanvas, 0, 0)
-                                  }
-                                }
-                              }}
+                            <Image
+                              src={processedImage.enhancedImageUrl}
+                              alt="Enhanced Image"
+                              width={500}
+                              height={500}
                               className="border rounded-lg shadow-sm max-w-full h-auto"
                               style={{ maxHeight: "300px" }}
                             />
@@ -595,7 +519,7 @@ ARTISTIC_STYLE: [recommended artistic approach]`
                               onClick={() => {
                                 const link = document.createElement("a")
                                 link.download = `enhanced-${processedImage.fileName}`
-                                link.href = processedImage.enhancedCanvas!.toDataURL()
+                                link.href = processedImage.enhancedImageUrl!
                                 link.click()
                               }}
                             >
@@ -665,25 +589,7 @@ ARTISTIC_STYLE: [recommended artistic approach]`
                     <ScrollArea className="h-[400px]">
                       {processedImage && processedImage.mappedImageUrl ? (
                         <div className="space-y-4">
-                          {processedImage.enhancedCanvas && (
-                            <div className="flex justify-center mb-4">
-                              <canvas
-                                ref={(canvas) => {
-                                  if (canvas && processedImage.enhancedCanvas) {
-                                    const ctx = canvas.getContext("2d")
-                                    if (ctx) {
-                                      canvas.width = processedImage.enhancedCanvas.width
-                                      canvas.height = processedImage.enhancedCanvas.height
-                                      ctx.drawImage(processedImage.enhancedCanvas, 0, 0)
-                                    }
-                                  }
-                                }}
-                                className="border rounded-lg shadow-sm max-w-full h-auto"
-                                style={{ maxHeight: "200px" }}
-                              />
-                            </div>
-                          )}
-                          <Label className="text-sm font-medium">AI Enhanced Drawing Description:</Label>
+                           <Label className="text-sm font-medium">AI Enhanced Drawing Description:</Label>
                           <Textarea
                             value={processedImage.mappedImageUrl}
                             readOnly
@@ -695,20 +601,6 @@ ARTISTIC_STYLE: [recommended artistic approach]`
                               <Copy className="h-4 w-4 mr-2" />
                               Copy Description
                             </Button>
-                            {processedImage.enhancedCanvas && (
-                              <Button
-                                variant="outline"
-                                onClick={() => {
-                                  const link = document.createElement("a")
-                                  link.download = `ai-enhanced-${processedImage.fileName}`
-                                  link.href = processedImage.enhancedCanvas!.toDataURL()
-                                  link.click()
-                                }}
-                              >
-                                <Download className="h-4 w-4 mr-2" />
-                                Download Enhanced Image
-                              </Button>
-                            )}
                           </div>
                         </div>
                       ) : (
@@ -746,7 +638,7 @@ ARTISTIC_STYLE: [recommended artistic approach]`
                     </div>
                     <div>
                       <p className="text-muted-foreground">Enhanced</p>
-                      <p className="font-medium">{processedImage.enhancedCanvas ? "Yes" : "No"}</p>
+                      <p className="font-medium">{processedImage.enhancedImageUrl ? "Yes" : "No"}</p>
                     </div>
                     <div>
                       <p className="text-muted-foreground">Base64 Generated</p>

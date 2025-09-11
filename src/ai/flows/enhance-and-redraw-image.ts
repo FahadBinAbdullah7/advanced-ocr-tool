@@ -30,18 +30,6 @@ export async function enhanceAndRedrawImage(input: EnhanceAndRedrawImageInput): 
   return enhanceAndRedrawImageFlow(input);
 }
 
-const prompt = ai.definePrompt({
-  name: 'enhanceAndRedrawImagePrompt',
-  input: {schema: EnhanceAndRedrawImageInputSchema},
-  output: {schema: EnhanceAndRedrawImageOutputSchema},
-  prompt: `You are an AI image enhancer and redrawer.  You will take a low-quality image and redraw it to produce an enhanced version.
-
-  The image is provided as a data URI.
-
-  Image: {{media url=photoDataUri}}
-  `,
-});
-
 const enhanceAndRedrawImageFlow = ai.defineFlow(
   {
     name: 'enhanceAndRedrawImageFlow',
@@ -52,7 +40,7 @@ const enhanceAndRedrawImageFlow = ai.defineFlow(
     const {media} = await ai.generate({
       prompt: [
         {media: {url: input.photoDataUri}},
-        {text: 'Redraw this image to be high quality'},
+        {text: 'recreate this image, enhance details and quality, and provide a transparent background'},
       ],
       model: 'googleai/gemini-2.0-flash-preview-image-generation',
       config: {
