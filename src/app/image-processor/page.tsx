@@ -275,20 +275,7 @@ export default function ImageProcessor() {
 
       const canvas = processedImage.enhancedCanvas || processedImage.originalCanvas
       const imageBase64 = canvasToBase64(canvas)
-
-      const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `Create an enhanced, improved version of this image. Analyze the visual content and recreate it with:
+      const prompt = `Create an enhanced, improved version of this image. Analyze the visual content and recreate it with:
 
 1. **Better clarity and sharpness**
 2. **Enhanced colors and contrast** 
@@ -301,33 +288,23 @@ Generate a detailed description that can be used to create a superior version of
 Format your response as:
 ENHANCED_DESCRIPTION: [detailed description for creating enhanced version]
 IMPROVEMENT_NOTES: [specific enhancements made]
-ARTISTIC_STYLE: [recommended artistic approach]`,
-                  },
-                  {
-                    inline_data: {
-                      mime_type: "image/png",
-                      data: imageBase64,
-                    },
-                  },
-                ],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.3,
-              maxOutputTokens: 3000,
-              topP: 0.8,
-              topK: 40,
-            },
-          }),
-        },
-      )
+ARTISTIC_STYLE: [recommended artistic approach]`
+
+      const apiResponse = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: imageBase64,
+          prompt: prompt,
+        }),
+      })
 
       setProcessingProgress(80)
       setProcessingStatus("Creating enhanced image...")
 
-      if (geminiResponse.ok) {
-        const geminiData = await geminiResponse.json()
-        const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || ""
+      if (apiResponse.ok) {
+        const apiData = await apiResponse.json()
+        const aiResponse = apiData.response || ""
 
         // Create an enhanced version of the image programmatically
         const enhancedCanvas = document.createElement("canvas")

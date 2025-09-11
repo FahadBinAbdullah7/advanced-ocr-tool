@@ -446,19 +446,7 @@ export function OcrTool() {
 
       const imageBase64 = canvasToBase64(canvas)
 
-      const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `Analyze this image and identify ONLY non-text visual elements. I want to find:
+      const prompt = `Analyze this image and identify ONLY non-text visual elements. I want to find:
 
 INCLUDE THESE:
 - Photographs, pictures, illustrations
@@ -489,36 +477,24 @@ Example:
 VISUAL_ELEMENTS_FOUND: 2
 COORDINATES:
 15,25,40,30,photograph of a building exterior
-60,10,35,45,flowchart diagram showing process steps`,
-                  },
-                  {
-                    inline_data: {
-                      mime_type: "image/png",
-                      data: imageBase64,
-                    },
-                  },
-                ],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 2048,
-              topP: 0.8,
-              topK: 40,
-            },
-          }),
-        },
-      )
+60,10,35,45,flowchart diagram showing process steps`
+
+      const apiResponse = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: imageBase64,
+          prompt: prompt,
+        }),
+      })
 
       setImageProgress(60)
       setImageStatus("Processing visual element detection...")
 
-      if (geminiResponse.ok) {
-        const geminiData = await geminiResponse.json()
-        const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || ""
-
+      if (apiResponse.ok) {
+        const apiData = await apiResponse.json()
+        const aiResponse = apiData.response || ""
         console.log("Visual element detection response:", aiResponse)
-
         const detectedImages = parseImageDetectionResponse(aiResponse, canvas)
         setImageProgress(100)
         setImageStatus(`Found ${detectedImages.length} non-text visual elements`)
@@ -686,19 +662,7 @@ COORDINATES:
 
       const imageBase64 = canvasToBase64(detectedImage.canvas)
 
-      const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `Create an enhanced, improved version of this image. Analyze the visual content and recreate it with:
+      const prompt = `Create an enhanced, improved version of this image. Analyze the visual content and recreate it with:
 
 1. **Better clarity and sharpness**
 2. **Enhanced colors and contrast** 
@@ -711,33 +675,23 @@ Generate a detailed description that can be used to create a superior version of
 Format your response as:
 ENHANCED_DESCRIPTION: [detailed description for creating enhanced version]
 IMPROVEMENT_NOTES: [specific enhancements made]
-ARTISTIC_STYLE: [recommended artistic approach]`,
-                  },
-                  {
-                    inline_data: {
-                      mime_type: "image/png",
-                      data: imageBase64,
-                    },
-                  },
-                ],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.3,
-              maxOutputTokens: 3000,
-              topP: 0.8,
-              topK: 40,
-            },
-          }),
-        },
-      )
+ARTISTIC_STYLE: [recommended artistic approach]`
+
+      const apiResponse = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: imageBase64,
+          prompt: prompt,
+        }),
+      })
 
       setImageProgress(80)
       setImageStatus("Creating enhanced image...")
 
-      if (geminiResponse.ok) {
-        const geminiData = await geminiResponse.json()
-        const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || ""
+      if (apiResponse.ok) {
+        const apiData = await apiResponse.json()
+        const aiResponse = apiData.response || ""
 
         // Create an enhanced version of the image programmatically
         const enhancedCanvas = document.createElement("canvas")
@@ -1006,19 +960,7 @@ ARTISTIC_STYLE: [recommended artistic approach]`,
       // Get the original image for mathematical expression comparison
       const originalImageBase64 = canvasRef.current ? canvasToBase64(canvasRef.current) : null
 
-      const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `You are an expert text and mathematical expression correction specialist. Analyze the following OCR-extracted text and perform comprehensive quality assurance:
+      const prompt = `You are an expert text and mathematical expression correction specialist. Analyze the following OCR-extracted text and perform comprehensive quality assurance:
 
 **CRITICAL INSTRUCTIONS FOR TEXT CORRECTION:**
 1. Fix spelling mistakes, grammar errors, punctuation issues
@@ -1062,38 +1004,23 @@ ${text}
 Please respond in this exact format:
 CORRECTED_TEXT: [the fully corrected text with properly formatted mathematical expressions]
 FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one per line, or "None" if no fixes needed]
-MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if no math expressions]`,
-                  },
-                  ...(originalImageBase64
-                    ? [
-                        {
-                          inline_data: {
-                            mime_type: "image/png",
-                            data: originalImageBase64,
-                          },
-                        },
-                      ]
-                    : []),
-                ],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 6000,
-              topP: 0.8,
-              topK: 40,
-            },
-          }),
-        },
-      )
+MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if no math expressions]`
+
+      const apiResponse = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: originalImageBase64,
+          prompt: prompt,
+        }),
+      })
 
       setQacProgress(70)
       setQacStatus("Processing comprehensive correction results...")
 
-      if (geminiResponse.ok) {
-        const geminiData = await geminiResponse.json()
-        const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || ""
-
+      if (apiResponse.ok) {
+        const apiData = await apiResponse.json()
+        const aiResponse = apiData.response || ""
         console.log("Enhanced QAC Gemini response:", aiResponse.substring(0, 300) + "...")
 
         if (aiResponse && aiResponse.trim().length > 0) {
@@ -1103,7 +1030,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
           return result
         }
       } else {
-        const errorData = await geminiResponse.json()
+        const errorData = await apiResponse.json()
         console.log("Enhanced QAC Gemini API failed:", errorData)
       }
 
