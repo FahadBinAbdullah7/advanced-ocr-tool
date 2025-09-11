@@ -223,7 +223,7 @@ export function OcrTool() {
         throw new Error("Could not get canvas context")
       }
 
-      const img = new Image()
+      const img = new window.Image()
       img.crossOrigin = "anonymous"
 
       await new Promise<void>((resolve, reject) => {
@@ -660,7 +660,7 @@ COORDINATES:
       setImageStatus("Creating AI-powered enhanced drawing...")
       setImageProgress(40)
 
-      const imageBase64 = canvasToBase64(detectedImage.canvas)
+      const imageBase64 = canvasToBase64(detectedImage.canvas).split(",")[1]
 
       const prompt = `Create an enhanced, improved version of this image. Analyze the visual content and recreate it with:
 
@@ -1312,10 +1312,10 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                 </div>
                 {selectedFile && (
                   <div className="mt-4 p-3 bg-muted rounded-lg">
-                    <p className="text-sm font-medium flex items-center gap-2">
+                    <div className="text-sm font-medium flex items-center gap-2">
                       {fileType === "pdf" ? <FileText className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
                       {selectedFile.name}
-                    </p>
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                       {fileType === "pdf" && totalPages > 0 && ` • ${totalPages} pages`}
@@ -1675,7 +1675,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                             onChange={(e) => {
                               if (currentExtraction.isQACProcessed) {
                                 setCurrentExtraction({ ...currentExtraction, qacText: e.target.value })
-                              } else if (currentExtraction) {
+                              } else {
                                 setCurrentExtraction({ ...currentExtraction, text: e.target.value })
                               }
                             }}

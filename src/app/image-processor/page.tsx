@@ -77,7 +77,7 @@ export default function ImageProcessor() {
         throw new Error("Could not get canvas context")
       }
 
-      const img = new Image()
+      const img = new window.Image()
       img.crossOrigin = "anonymous"
 
       await new Promise<void>((resolve, reject) => {
@@ -245,8 +245,7 @@ export default function ImageProcessor() {
       setProcessingStatus("Creating AI-powered enhanced drawing...")
       setProcessingProgress(40)
 
-      const canvas = processedImage.originalCanvas
-      const imageBase64 = canvas.toDataURL("image/png", 1.0).split(",")[1]
+      const imageBase64 = canvasToBase64(processedImage.originalCanvas).split(",")[1]
 
       const apiResponse = await fetch("/api/ocr", {
         method: "POST",
