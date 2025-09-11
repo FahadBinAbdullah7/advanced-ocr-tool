@@ -24,7 +24,7 @@ import {
   Sparkles,
 } from "lucide-react"
 import Link from "next/link"
-import { performImageRedraw } from "@/app/actions"
+import { enhanceAndRedrawImage } from "@/ai/flows/enhance-and-redraw-image"
 import Image from "next/image"
 
 interface ProcessedImage {
@@ -171,8 +171,8 @@ export default function ImageProcessor() {
     }, 100)
   }, [])
 
-  // Convert canvas to base64 for API calls
-  const canvasToBase64 = (canvas: HTMLCanvasElement): string => {
+  // Convert canvas to data URI for API calls
+  const canvasToDataUri = (canvas: HTMLCanvasElement): string => {
     return canvas.toDataURL("image/png", 1.0)
   }
 
@@ -185,8 +185,8 @@ export default function ImageProcessor() {
       setProcessingStatus("Submitting to AI for enhancement...")
       setProcessingProgress(30)
       
-      const imageUrl = canvasToBase64(processedImage.originalCanvas)
-      const redrawnImage = await performImageRedraw(imageUrl)
+      const dataUri = canvasToDataUri(processedImage.originalCanvas)
+      const result = await enhanceAndRedrawImage({ photoDataUri: dataUri })
 
       setProcessingProgress(100)
       setProcessingStatus("Image enhancement completed!")
@@ -194,7 +194,7 @@ export default function ImageProcessor() {
       // Update processed image
       setProcessedImage({
         ...processedImage,
-        enhancedImageUrl: redrawnImage,
+        enhancedImageUrl: result.redrawnImage,
       })
     } catch (error) {
       console.error("Image enhancement error:", error)
@@ -245,7 +245,7 @@ export default function ImageProcessor() {
       setProcessingStatus("Creating AI-powered enhanced drawing...")
       setProcessingProgress(40)
 
-      const imageBase64 = canvasToBase64(processedImage.originalCanvas).split(",")[1]
+      const imageBase64 = canvasToDataUri(processedImage.originalCanvas).split(",")[1]
 
       const apiResponse = await fetch("/api/ocr", {
         method: "POST",

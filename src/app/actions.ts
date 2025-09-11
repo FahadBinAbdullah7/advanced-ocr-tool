@@ -21,47 +21,29 @@ export async function performOcrCorrection(
   }
 }
 
-async function imageUrlToDataUri(url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image: ${response.statusText}`);
-  }
-  const blob = await response.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-      } else {
-        reject(new Error("Failed to read image as data URI."));
-      }
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-export async function performImageRedraw(imageUrl: string): Promise<string> {
-  if (!imageUrl) {
-    throw new Error("Image URL cannot be empty.");
-  }
-  try {
-    const dataUri = await imageUrlToDataUri(imageUrl);
-    const result = await enhanceAndRedrawImage({ photoDataUri: dataUri });
-    return result.redrawnImage;
-  } catch (error) {
-    console.error("Error in performImageRedraw:", error);
-    throw new Error("Failed to redraw image with AI.");
-  }
-}
-
 export async function convertImageToBase64(imageUrl: string): Promise<string> {
   if (!imageUrl) {
     throw new Error("Image URL cannot be empty.");
   }
   try {
-    const dataUri = await imageUrlToDataUri(imageUrl);
-    return dataUri;
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    }
+    const blob = await response.blob();
+    const reader = new FileReader();
+    const dataUrlPromise = new Promise<string>((resolve, reject) => {
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('Failed to read image as data URI.'));
+        }
+      };
+      reader.onerror = reject;
+    });
+    reader.readAsDataURL(blob);
+    return await dataUrlPromise;
   } catch (error) {
     console.error("Error in convertImageToBase64:", error);
     throw new Error("Failed to convert image to Base64.");
