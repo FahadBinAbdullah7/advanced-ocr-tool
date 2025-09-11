@@ -1673,7 +1673,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                                 : currentExtraction.text
                             }
                             onChange={(e) => {
-                              if (currentExtraction.isQACProcessed && currentExtraction.qacText) {
+                              if (currentExtraction.isQACProcessed) {
                                 setCurrentExtraction({ ...currentExtraction, qacText: e.target.value })
                               } else if (currentExtraction) {
                                 setCurrentExtraction({ ...currentExtraction, text: e.target.value })
@@ -1989,7 +1989,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                         >
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-sm font-medium flex items-center gap-2">
+                              <div className="text-sm font-medium flex items-center gap-2">
                                 {extraction.fileType === "pdf" ? (
                                   <FileText className="h-3 w-3" />
                                 ) : (
@@ -2009,7 +2009,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                                     {extraction.detectedImages.length} IMG
                                   </Badge>
                                 )}
-                              </p>
+                              </div>
                               <p className="text-xs text-muted-foreground">
                                 {extraction.extractionMethod} • {extraction.confidence}% confidence
                               </p>
