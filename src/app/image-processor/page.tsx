@@ -19,7 +19,6 @@ import {
   ImageIcon,
   Palette,
   Code,
-  Map,
   ArrowLeft,
   Sparkles,
 } from "lucide-react"
@@ -32,7 +31,6 @@ interface ProcessedImage {
   originalCanvas: HTMLCanvasElement
   enhancedImageUrl?: string
   base64?: string
-  mappedImageUrl?: string
   isProcessing?: boolean
   fileName: string
 }
@@ -236,67 +234,6 @@ export default function ImageProcessor() {
     }
   }
 
-  // Map image using AI (create enhanced drawing version)
-  const mapImage = async () => {
-    if (!processedImage) return
-
-    try {
-      setIsProcessing(true)
-      setProcessingStatus("Creating AI-powered enhanced drawing...")
-      setProcessingProgress(40)
-
-      const imageBase64 = canvasToDataUri(processedImage.originalCanvas).split(",")[1]
-
-      const apiResponse = await fetch("/api/ocr", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageBase64: imageBase64,
-          prompt: `Create an enhanced, improved version of this image. Analyze the visual content and recreate it with:
-
-1. **Better clarity and sharpness**
-2. **Enhanced colors and contrast** 
-3. **Improved composition and layout**
-4. **Professional artistic quality**
-5. **Clean, refined details**
-
-Generate a detailed description that can be used to create a superior version of this image.
-
-Format your response as:
-ENHANCED_DESCRIPTION: [detailed description for creating enhanced version]
-IMPROVEMENT_NOTES: [specific enhancements made]
-ARTISTIC_STYLE: [recommended artistic approach]`,
-        }),
-      })
-
-      setProcessingProgress(80)
-      setProcessingStatus("Processing AI drawing...")
-
-      if (apiResponse.ok) {
-        const apiData = await apiResponse.json()
-        const aiResponse = apiData.response || ""
-
-        setProcessingProgress(100)
-        setProcessingStatus("Enhanced image mapping completed!")
-
-        // Update processed image
-        setProcessedImage({
-          ...processedImage,
-          mappedImageUrl: aiResponse,
-        })
-      } else {
-        throw new Error("Failed to get AI response")
-      }
-    } catch (error) {
-      console.error("Enhanced drawing mapping error:", error)
-      setProcessingStatus("Enhanced drawing mapping failed")
-      setFileError("Failed to create AI-enhanced drawing. Please try again.")
-    } finally {
-      setIsProcessing(false)
-      setProcessingProgress(0)
-    }
-  }
-
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
   }
@@ -317,7 +254,7 @@ ARTISTIC_STYLE: [recommended artistic approach]`,
             </div>
             <div className="flex-1 text-center">
               <h1 className="text-3xl font-bold tracking-tight">Image Processor</h1>
-              <p className="text-muted-foreground">Enhance images, convert to Base64, and create AI-powered drawings</p>
+              <p className="text-muted-foreground">Enhance images and convert to Base64</p>
             </div>
             <div className="flex-1" />
           </div>
@@ -457,15 +394,6 @@ ARTISTIC_STYLE: [recommended artistic approach]`,
                       <Code className="h-4 w-4 mr-2" />
                       Convert to Base64
                     </Button>
-                    <Button
-                      onClick={mapImage}
-                      disabled={isProcessing}
-                      variant="outline"
-                      className="justify-start bg-transparent"
-                    >
-                      <Map className="h-4 w-4 mr-2" />
-                      Create AI Enhanced Drawing
-                    </Button>
                   </div>
 
                   {/* Processing Progress */}
@@ -493,10 +421,9 @@ ARTISTIC_STYLE: [recommended artistic approach]`,
               </CardHeader>
               <CardContent>
                 <Tabs defaultValue="enhanced" className="w-full">
-                  <TabsList className="grid w-full grid-cols-3">
+                  <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="enhanced">Enhanced Image</TabsTrigger>
                     <TabsTrigger value="base64">Base64 Code</TabsTrigger>
-                    <TabsTrigger value="mapped">AI Drawing</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="enhanced" className="mt-4">
@@ -578,36 +505,6 @@ ARTISTIC_STYLE: [recommended artistic approach]`,
                             <Code className="h-12 w-12 mx-auto mb-2" />
                             <p>No Base64 code yet</p>
                             <p className="text-xs mt-1">Click "Convert to Base64" to generate the code</p>
-                          </div>
-                        </div>
-                      )}
-                    </ScrollArea>
-                  </TabsContent>
-
-                  <TabsContent value="mapped" className="mt-4">
-                    <ScrollArea className="h-[400px]">
-                      {processedImage && processedImage.mappedImageUrl ? (
-                        <div className="space-y-4">
-                           <Label className="text-sm font-medium">AI Enhanced Drawing Description:</Label>
-                          <Textarea
-                            value={processedImage.mappedImageUrl}
-                            readOnly
-                            className="min-h-[200px] text-sm"
-                            placeholder="AI drawing description will appear here..."
-                          />
-                          <div className="flex gap-2">
-                            <Button onClick={() => copyToClipboard(processedImage.mappedImageUrl!)}>
-                              <Copy className="h-4 w-4 mr-2" />
-                              Copy Description
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="h-[350px] flex items-center justify-center text-muted-foreground">
-                          <div className="text-center">
-                            <Map className="h-12 w-12 mx-auto mb-2" />
-                            <p>No AI drawing yet</p>
-                            <p className="text-xs mt-1">Click "Create AI Enhanced Drawing" to generate description</p>
                           </div>
                         </div>
                       )}

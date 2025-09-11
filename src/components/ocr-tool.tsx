@@ -34,7 +34,6 @@ import {
   Crop,
   Palette,
   Code,
-  Map,
   ArrowRight,
 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -56,7 +55,6 @@ interface DetectedImage {
   height: number
   enhancedCanvas?: HTMLCanvasElement
   base64?: string
-  mappedImageUrl?: string
   isProcessing?: boolean
   description?: string
 }
@@ -653,107 +651,8 @@ COORDINATES:
     return canvas.toDataURL("image/png", 1.0)
   }
 
-  // Map image using AI (create enhanced drawing version)
-  const mapImage = async (detectedImage: DetectedImage) => {
-    try {
-      setIsImageProcessing(true)
-      setImageStatus("Creating AI-powered enhanced drawing...")
-      setImageProgress(40)
-
-      const imageBase64 = canvasToBase64(detectedImage.canvas).split(",")[1]
-
-      const prompt = `Create an enhanced, improved version of this image. Analyze the visual content and recreate it with:
-
-1. **Better clarity and sharpness**
-2. **Enhanced colors and contrast** 
-3. **Improved composition and layout**
-4. **Professional artistic quality**
-5. **Clean, refined details**
-
-Generate a detailed description that can be used to create a superior version of this image.
-
-Format your response as:
-ENHANCED_DESCRIPTION: [detailed description for creating enhanced version]
-IMPROVEMENT_NOTES: [specific enhancements made]
-ARTISTIC_STYLE: [recommended artistic approach]`
-
-      const apiResponse = await fetch("/api/ocr", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageBase64: imageBase64,
-          prompt: prompt,
-        }),
-      })
-
-      setImageProgress(80)
-      setImageStatus("Creating enhanced image...")
-
-      if (apiResponse.ok) {
-        const apiData = await apiResponse.json()
-        const aiResponse = apiData.response || ""
-
-        // Create an enhanced version of the image programmatically
-        const enhancedCanvas = document.createElement("canvas")
-        const sourceCanvas = detectedImage.canvas
-
-        // Scale up for better quality
-        const scaleFactor = 3
-        enhancedCanvas.width = sourceCanvas.width * scaleFactor
-        enhancedCanvas.height = sourceCanvas.height * scaleFactor
-
-        const enhancedCtx = enhancedCanvas.getContext("2d")
-        if (!enhancedCtx) throw new Error("Could not get enhanced canvas context")
-
-        // Apply advanced enhancement techniques
-        enhancedCtx.imageSmoothingEnabled = true
-        enhancedCtx.imageSmoothingQuality = "high"
-
-        // Fill with white background
-        enhancedCtx.fillStyle = "white"
-        enhancedCtx.fillRect(0, 0, enhancedCanvas.width, enhancedCanvas.height)
-
-        // Draw scaled up image
-        enhancedCtx.drawImage(sourceCanvas, 0, 0, enhancedCanvas.width, enhancedCanvas.height)
-
-        // Apply advanced image processing
-        const imageData = enhancedCtx.getImageData(0, 0, enhancedCanvas.width, enhancedCanvas.height)
-        const data = imageData.data
-
-        // Enhanced processing: brightness, contrast, and sharpening
-        for (let i = 0; i < data.length; i += 4) {
-          // Enhance brightness and contrast
-          const brightness = 1.1
-          const contrast = 1.3
-
-          data[i] = Math.min(255, Math.max(0, (data[i] - 128) * contrast + 128 * brightness)) // Red
-          data[i + 1] = Math.min(255, Math.max(0, (data[i + 1] - 128) * contrast + 128 * brightness)) // Green
-          data[i + 2] = Math.min(255, Math.max(0, (data[i + 2] - 128) * contrast + 128 * brightness)) // Blue
-        }
-
-        enhancedCtx.putImageData(imageData, 0, 0)
-
-        setImageProgress(100)
-        setImageStatus("Enhanced image mapping completed!")
-
-        return {
-          description: aiResponse,
-          enhancedCanvas: enhancedCanvas,
-        }
-      }
-
-      throw new Error("Failed to get AI response")
-    } catch (error) {
-      console.error("Enhanced drawing mapping error:", error)
-      setImageStatus("Enhanced drawing mapping failed")
-      throw error
-    } finally {
-      setIsImageProcessing(false)
-    }
-  }
-
   // Handle image processing actions
-  const handleImageAction = async (detectedImage: DetectedImage, action: "enhance" | "base64" | "map") => {
+  const handleImageAction = async (detectedImage: DetectedImage, action: "enhance" | "base64") => {
     if (!currentExtraction) return
 
     try {
@@ -775,11 +674,6 @@ ARTISTIC_STYLE: [recommended artistic approach]`
         case "base64":
           const base64 = convertToBase64(detectedImage.canvas)
           updatedImage.base64 = base64
-          break
-        case "map":
-          const mappedResult = await mapImage(detectedImage)
-          updatedImage.mappedImageUrl = mappedResult.description
-          updatedImage.enhancedCanvas = mappedResult.enhancedCanvas
           break
       }
 
@@ -1312,9 +1206,9 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                 </div>
                 {selectedFile && (
                   <div className="mt-4 p-3 bg-muted rounded-lg">
-                    <div className="text-sm font-medium flex items-center gap-2">
+                    <div className="flex items-center gap-2">
                       {fileType === "pdf" ? <FileText className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
-                      {selectedFile.name}
+                      <p className="text-sm font-medium">{selectedFile.name}</p>
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
@@ -1505,7 +1399,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                   </Button>
                 </Link>
                 <p className="text-xs text-muted-foreground mt-2 text-center">
-                  Enhance, convert to Base64, and create AI-powered drawings
+                  Enhance and convert images to Base64
                 </p>
               </CardContent>
             </Card>
@@ -1861,19 +1755,6 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                                     )}
                                     Base64
                                   </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleImageAction(detectedImage, "map")}
-                                    disabled={detectedImage.isProcessing || isImageProcessing}
-                                  >
-                                    {detectedImage.isProcessing ? (
-                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                    ) : (
-                                      <Map className="h-3 w-3 mr-1" />
-                                    )}
-                                    Map Image
-                                  </Button>
                                 </div>
 
                                 {/* Results Display */}
@@ -1894,42 +1775,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                                     </Button>
                                   </div>
                                 )}
-
-                                {detectedImage.mappedImageUrl && (
-                                  <div className="mt-3">
-                                    <Label className="text-xs font-medium">AI Enhanced Image:</Label>
-                                    <div className="mt-1 p-2 bg-muted rounded text-xs max-h-32 overflow-y-auto">
-                                      {detectedImage.mappedImageUrl}
-                                    </div>
-                                    <div className="flex gap-2 mt-2">
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => copyToClipboard(detectedImage.mappedImageUrl!)}
-                                      >
-                                        <Copy className="h-3 w-3 mr-1" />
-                                        Copy Description
-                                      </Button>
-                                      {detectedImage.enhancedCanvas && (
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => {
-                                            const link = document.createElement("a")
-                                            link.download = `enhanced-image-${detectedImage.id}.png`
-                                            link.href = detectedImage.enhancedCanvas!.toDataURL()
-                                            link.click()
-                                          }}
-                                        >
-                                          <Download className="h-3 w-3 mr-1" />
-                                          Download Enhanced
-                                        </Button>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
-                                {detectedImage.enhancedCanvas && !detectedImage.mappedImageUrl && (
+                                {detectedImage.enhancedCanvas && (
                                   <div className="mt-3">
                                     <Label className="text-xs font-medium">Enhanced Image:</Label>
                                     <Button
