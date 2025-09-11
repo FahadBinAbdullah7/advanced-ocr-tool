@@ -5,7 +5,6 @@ import {
   type CorrectAndSummarizeTextOutput,
 } from "@/ai/flows/correct-and-summarize-text";
 import { enhanceAndRedrawImage } from "@/ai/flows/enhance-and-redraw-image";
-import { extractTextFromImage } from "@/ai/flows/extract-text-from-image";
 
 export async function performOcrCorrection(
   text: string
@@ -66,18 +65,5 @@ export async function convertImageToBase64(imageUrl: string): Promise<string> {
   } catch (error) {
     console.error("Error in convertImageToBase64:", error);
     throw new Error("Failed to convert image to Base64.");
-  }
-}
-
-export async function performOcr(dataUri: string): Promise<string> {
-  if (!dataUri) {
-    throw new Error("Image data URI cannot be empty.");
-  }
-  try {
-    const result = await extractTextFromImage({ photoDataUri: dataUri });
-    return result.extractedText;
-  } catch (error) {
-    console.error("Error in performOcr:", error);
-    throw new Error("Failed to extract text from image with AI.");
   }
 }

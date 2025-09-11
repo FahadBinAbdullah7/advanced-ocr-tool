@@ -31,7 +31,6 @@ import type { CorrectAndSummarizeTextOutput } from "@/ai/flows/correct-and-summa
 import {
   performOcrCorrection,
   performImageRedraw,
-  performOcr,
 } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -83,6 +82,10 @@ export function OcrTool() {
   const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(
     null
   );
+  
+  const [mathText, setMathText] = useState<string>("None");
+  const [ocrConfidence, setOcrConfidence] = useState<string | null>(null);
+  const [ocrMethod, setOcrMethod] = useState<string | null>(null);
 
   const { toast } = useToast();
 
@@ -98,6 +101,9 @@ export function OcrTool() {
       setSelection(null);
       setCroppedImageSrc(null);
       setZoom(1);
+      setMathText("None");
+      setOcrConfidence(null);
+      setOcrMethod(null);
 
       if (file.type.startsWith("image/")) {
         const reader = new FileReader();
@@ -163,19 +169,19 @@ export function OcrTool() {
 
   const handleCrop = async () => {
     if (!selection || !imageContainerRef.current) return;
-
+  
     try {
       const container = imageContainerRef.current;
       const fullCanvas = await getSourceCanvas();
       const naturalWidth = fullCanvas.width;
       const naturalHeight = fullCanvas.height;
-
+  
       const containerRect = container.getBoundingClientRect();
       const naturalAspectRatio = naturalWidth / naturalHeight;
       const containerAspectRatio = containerRect.width / containerRect.height;
-
+  
       let renderedWidth, renderedHeight, offsetX, offsetY;
-
+  
       if (naturalAspectRatio > containerAspectRatio) {
         renderedWidth = containerRect.width;
         renderedHeight = renderedWidth / naturalAspectRatio;
@@ -187,28 +193,28 @@ export function OcrTool() {
         offsetY = 0;
         offsetX = (containerRect.width - renderedWidth) / 2;
       }
-
+  
       const scale = naturalWidth / renderedWidth;
-
+  
       const cropX = (selection.x - offsetX) * scale;
       const cropY = (selection.y - offsetY) * scale;
       const cropWidth = selection.width * scale;
       const cropHeight = selection.height * scale;
-
+  
       const finalCropX = Math.max(0, cropX);
       const finalCropY = Math.max(0, cropY);
       const finalCropWidth = Math.min(naturalWidth - finalCropX, cropWidth);
       const finalCropHeight = Math.min(naturalHeight - finalCropY, cropHeight);
-
+  
       const croppedCanvas = document.createElement("canvas");
       croppedCanvas.width = finalCropWidth;
       croppedCanvas.height = finalCropHeight;
       const croppedCtx = croppedCanvas.getContext("2d");
-
+  
       if (!croppedCtx) {
         throw new Error("Could not create cropped canvas context.");
       }
-
+  
       croppedCtx.drawImage(
         fullCanvas,
         finalCropX,
@@ -220,7 +226,7 @@ export function OcrTool() {
         finalCropWidth,
         finalCropHeight
       );
-
+  
       setCroppedImageSrc(croppedCanvas.toDataURL());
       setSelection(null);
       toast({
@@ -250,6 +256,10 @@ export function OcrTool() {
     }
 
     setIsExtracting(true);
+    setExtractedText("");
+    setMathText("None");
+    setOcrConfidence(null);
+    setOcrMethod(null);
     try {
       let dataUri: string | undefined;
 
@@ -261,14 +271,43 @@ export function OcrTool() {
       }
 
       if (!dataUri) throw new Error("Could not generate image data for OCR.");
+      
+      const imageBase64 = dataUri.split(',')[1];
+      
+      const response = await fetch('/api/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          imageBase64,
+          fileType: file?.type.startsWith('image') ? 'image' : 'pdf',
+          selectedLanguages: ['eng', 'ben'] 
+        }),
+      });
 
-      const text = await performOcr(dataUri);
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || "OCR request failed");
+      }
+      
+      setOcrMethod(result.method);
+
+      // Parsing the response
+      const textMatch = result.response.match(/TEXT:([\s\S]*?)MATH:/);
+      const mathMatch = result.response.match(/MATH:([\s\S]*?)CONFIDENCE:/);
+      const confidenceMatch = result.response.match(/CONFIDENCE:([\s\S]*)/);
+      
+      const text = textMatch ? textMatch[1].trim() : "No text found.";
+      const math = mathMatch ? mathMatch[1].trim() : "None";
+      const confidence = confidenceMatch ? confidenceMatch[1].trim() : null;
+
       setExtractedText(text);
+      setMathText(math);
+      setOcrConfidence(confidence);
+
       toast({
         title: "Text Extracted",
-        description: `Successfully extracted text from the ${
-          croppedImageSrc ? "cropped area" : "full page"
-        }.`,
+        description: `Successfully extracted text using ${result.method}.`,
       });
     } catch (error) {
       console.error(error);
@@ -422,7 +461,7 @@ export function OcrTool() {
         </Card>
          <Button
               onClick={handleExtractText}
-              disabled={!file || isExtracting}
+              disabled={(!file && !croppedImageSrc) || isExtracting}
               className="w-full text-lg py-6"
               size="lg"
             >
@@ -551,6 +590,11 @@ export function OcrTool() {
               <Sparkles className="w-5 h-5 text-primary" />
               AI Text Extraction Results
             </CardTitle>
+            {ocrMethod && ocrConfidence && (
+              <CardDescription>
+                Processed by {ocrMethod} with {ocrConfidence} confidence.
+              </CardDescription>
+            )}
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="extracted">
@@ -561,15 +605,22 @@ export function OcrTool() {
                     <TabsTrigger value="images">Images (0)</TabsTrigger>
                 </TabsList>
                 <TabsContent value="extracted" className="mt-4">
-                     {!extractedText && !isLoadingCorrection && (
+                     {!extractedText && !isExtracting && !isLoadingCorrection && (
                         <div className="flex flex-col items-center justify-center text-muted-foreground text-center p-8 min-h-[40vh]">
                             <FileText className="w-16 h-16 mb-4" />
                             <h3 className="font-semibold text-lg">No text extracted yet</h3>
                             <p className="text-sm">Upload a PDF or image and extract text using AI</p>
                         </div>
                     )}
+                    
+                    {isExtracting && (
+                      <div className="flex flex-col items-center justify-center min-h-[40vh]">
+                          <Loader2 className="w-16 h-16 animate-spin text-primary" />
+                          <p className="text-muted-foreground mt-4">AI is extracting text...</p>
+                      </div>
+                    )}
 
-                    {extractedText && (
+                    {extractedText && !isExtracting && (
                         <div className="space-y-4">
                         <div className="flex justify-between items-center">
                             <Label htmlFor="extracted-text">Extracted Text</Label>
@@ -656,10 +707,48 @@ export function OcrTool() {
                     )}
                 </TabsContent>
                  <TabsContent value="math" className="min-h-[40vh] flex items-center justify-center">
-                    <div className="text-muted-foreground text-center">Math equation extraction is coming soon.</div>
+                    <Textarea
+                        id="math-text"
+                        value={mathText}
+                        readOnly
+                        rows={8}
+                        className="mt-2 bg-secondary font-code"
+                      />
                 </TabsContent>
                  <TabsContent value="qac" className="min-h-[40vh] flex items-center justify-center">
-                    <div className="text-muted-foreground text-center">QAC fixes will appear here.</div>
+                    {correctionResult ? (
+                       <div className="w-full">
+                         <h3 className="text-lg font-semibold mb-2">Summary of Corrections</h3>
+                         <div className="border rounded-lg overflow-hidden max-h-[60vh] overflow-y-auto">
+                           <Table>
+                             <TableHeader>
+                               <TableRow>
+                                 <TableHead>Original</TableHead>
+                                 <TableHead>Corrected</TableHead>
+                               </TableRow>
+                             </TableHeader>
+                             <TableBody>
+                               {correctionResult.correctionsSummary.map(
+                                 (correction, index) => (
+                                   <TableRow key={index}>
+                                     <TableCell className="text-destructive/80">
+                                       {correction.original}
+                                     </TableCell>
+                                     <TableCell className="text-green-600">
+                                       {correction.corrected}
+                                     </TableCell>
+                                   </TableRow>
+                                 )
+                               )}
+                             </TableBody>
+                           </Table>
+                         </div>
+                       </div>
+                    ) : (
+                      <div className="text-muted-foreground text-center">
+                        Run AI Correction on the 'Extracted Text' tab to see fixes here.
+                      </div>
+                    )}
                 </TabsContent>
                  <TabsContent value="images" className="min-h-[40vh] flex items-center justify-center">
                     <div className="text-muted-foreground text-center">Extracted images will appear here.</div>
