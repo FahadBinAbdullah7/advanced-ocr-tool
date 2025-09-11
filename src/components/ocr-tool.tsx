@@ -875,115 +875,39 @@ ARTISTIC_STYLE: [recommended artistic approach]`,
         setOcrProgress(30)
 
         const imageBase64 = canvasToBase64(canvas)
-
-        console.log("Sending to Gemini:", { imageSize: imageBase64.length, fileType })
-
-        const geminiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              contents: [
-                {
-                  parts: [
-                    {
-                      text: `You are an expert OCR system. Extract ALL visible text from this ${fileType === "pdf" ? "PDF page" : "image"} with maximum accuracy.
-
-CRITICAL INSTRUCTIONS:
-1. Extract EVERY piece of text visible in the image, no matter how small. if the texts are in a table give the extracted texts in like google sheet table like the image or pdf.
-2. Maintain exact formatting, spacing, and line breaks as they appear
-3. Support multiple languages: ${selectedLanguages.includes("eng") ? "English" : ""} ${selectedLanguages.includes("ben") ? "Bengali/Bangla" : ""}
-4. Identify mathematical equations, formulas, symbols, and special characters
-5. Pay special attention to small text, footnotes, and captions
-6. Preserve table structures and bullet points if present
-7. Return clean, readable text without adding commentary
-8. Extract text systematically from top to bottom, left to right
-
-Format your response as:
-TEXT: [all extracted text here, maintaining original structure]
-MATH: [mathematical equations found, one per line, or "None" if no math]
-CONFIDENCE: [your confidence percentage 85-98]`,
-                    },
-                    {
-                      inline_data: {
-                        mime_type: "image/png",
-                        data: imageBase64,
-                      },
-                    },
-                  ],
-                },
-              ],
-              generationConfig: {
-                temperature: 0.1,
-                maxOutputTokens: 4096,
-                topP: 0.8,
-                topK: 40,
-              },
-            }),
+        
+        const apiResponse = await fetch("/api/ocr", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        )
+          body: JSON.stringify({
+              imageBase64: imageBase64,
+              fileType: fileType,
+              selectedLanguages: selectedLanguages
+          }),
+        })
 
         setOcrProgress(60)
         setOcrStatus("Processing Gemini AI response...")
 
-        if (geminiResponse.ok) {
-          const geminiData = await geminiResponse.json()
-          const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || ""
-
-          console.log("Gemini response:", aiResponse.substring(0, 200) + "...")
-
-          if (aiResponse && aiResponse.trim().length > 0) {
-            extractionResult = parseAIResponse(aiResponse)
-            extractionMethod = `Google Gemini AI (${fileType?.toUpperCase()})`
-            setOcrProgress(80)
-            setOcrStatus("Gemini AI extraction successful!")
+        if (apiResponse.ok) {
+          const apiData = await apiResponse.json()
+          if(apiData.success) {
+              const aiResponse = apiData.response || ""
+              if (aiResponse && aiResponse.trim().length > 0) {
+                  extractionResult = parseAIResponse(aiResponse)
+                  extractionMethod = `Google Gemini AI (${fileType?.toUpperCase()})`
+                  setOcrProgress(80)
+                  setOcrStatus("Gemini AI extraction successful!")
+              }
           }
         } else {
-          const errorData = await geminiResponse.json()
+          const errorData = await apiResponse.json()
           console.log("Gemini API failed:", errorData)
         }
       } catch (geminiError) {
-        console.log("Gemini AI unavailable, trying alternative methods...", geminiError)
-      }
-
-      // Method 2: Try Mistral AI (Secondary)
-      if (!extractionResult) {
-        try {
-          setOcrStatus("Trying Mistral AI...")
-          setOcrProgress(40)
-
-          const imageBase64 = canvasToBase64(canvas)
-          
-          const mistralResponse = await fetch("/api/ocr", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                imageBase64: imageBase64,
-                fileType: fileType,
-                selectedLanguages: selectedLanguages
-            }),
-          })
-
-          if (mistralResponse.ok) {
-            const mistralData = await mistralResponse.json()
-            if(mistralData.success) {
-                const aiResponse = mistralData.response || ""
-                if (aiResponse && aiResponse.trim().length > 0) {
-                    extractionResult = parseAIResponse(aiResponse)
-                    extractionMethod = `Mistral AI (${fileType?.toUpperCase()})`
-                    setOcrProgress(70)
-                    setOcrStatus("Mistral AI extraction successful!")
-                }
-            }
-          }
-        } catch (mistralError) {
-          console.log("Mistral AI unavailable...")
-        }
+        console.log("Gemini AI unavailable...", geminiError)
       }
 
       // Method 3: Fallback message (no dummy text)
