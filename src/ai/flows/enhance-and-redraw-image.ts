@@ -1,10 +1,6 @@
 'use server';
 /**
- * @fileOverview An AI agent that enhances and upscales images while maintaining exact details.
- *
- * - enhanceAndRedrawImage - A function that handles the image enhancement process.
- * - EnhanceAndRedrawImageInput - The input type for the enhanceAndRedrawImage function.
- * - EnhanceAndRedrawImageOutput - The return type for the enhanceAndRedrawImage function.
+ * @fileOverview An AI agent that enhances images using different approaches.
  */
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
@@ -28,233 +24,221 @@ const EnhanceAndRedrawImageOutputSchema = z.object({
 export type EnhanceAndRedrawImageOutput = z.infer<typeof EnhanceAndRedrawImageOutputSchema>;
 
 export async function enhanceAndRedrawImage(input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput> {
-  return enhanceImageFlow(input);
-}
+  // Try multiple approaches in order of likelihood to succeed
+  const approaches = [
+    () => tryDirectGeneration(input),
+    () => tryWithDetailedAnalysis(input),
+    () => tryWithSimplePrompt(input),
+    () => tryWithDifferentConfig(input)
+  ];
 
-// Method 1: Try image editing/enhancement instead of generation
-const enhanceImageFlow = ai.defineFlow(
-  {
-    name: 'enhanceImageFlow',
-    inputSchema: EnhanceAndRedrawImageInputSchema,
-    outputSchema: EnhanceAndRedrawImageOutputSchema,
-  },
-  async input => {
+  let lastError: Error | null = null;
+
+  for (const approach of approaches) {
     try {
-      // Try using image editing capabilities if available
-      const {media} = await ai.generate({
-        prompt: [
-          {media: {url: input.photoDataUri}},
-          {
-            text: `UPSCALE and ENHANCE this image. Do not recreate or redraw - only improve the existing image quality:
-
-ENHANCEMENT INSTRUCTIONS:
-- Upscale resolution by 2-4x
-- Sharpen blurry areas
-- Reduce noise and compression artifacts  
-- Enhance contrast and brightness naturally
-- Improve color saturation slightly
-- Clean up pixelation
-- Maintain transparent background if present
-
-CRITICAL: Do not change, add, remove, or redraw any content. Only enhance the quality of what already exists.`
-          },
-        ],
-        model: 'googleai/gemini-2.0-flash-preview-image-generation',
-        config: {
-          responseModalities: ['IMAGE'],
-          temperature: 0,
-        },
-      });
-      
-      return {redrawnImage: media.url!};
+      const result = await approach();
+      if (result.redrawnImage) {
+        return result;
+      }
     } catch (error) {
-      // Fallback to recreation method with very specific instructions
-      return await recreateWithMaximumFidelity(input);
+      lastError = error as Error;
+      console.log(`Approach failed: ${error}. Trying next approach...`);
     }
   }
-);
 
-// Method 2: Multi-step approach for better detail preservation
-const recreateWithMaximumFidelity = async (input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput> => {
-  // Step 1: Get extremely detailed description
-  const description = await ai.generate({
+  throw lastError || new Error('All enhancement approaches failed');
+}
+
+// Approach 1: Direct generation with simple, clear instructions
+async function tryDirectGeneration(input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput> {
+  const response = await ai.generate({
     prompt: [
       {media: {url: input.photoDataUri}},
-      {
-        text: `Create an EXHAUSTIVE, pixel-level description of this image for exact recreation:
+      {text: 'Create a high-quality version of this exact image. Keep all details identical but improve the resolution and clarity.'}
+    ],
+    model: 'googleai/gemini-2.0-flash-preview-image-generation',
+    config: {
+      responseModalities: ['TEXT', 'IMAGE'],
+    },
+  });
 
-COMPOSITION:
-- Exact dimensions and aspect ratio
-- Position of every element (use percentages)
-- Viewing angle and perspective details
+  if (!response.media?.url) {
+    throw new Error('No image generated in direct approach');
+  }
 
-SUBJECTS (if people):
-- Age, gender, ethnicity appearance
-- Facial features in detail (eyes, nose, mouth, hair)
-- Exact facial expression and head position
-- Body posture and limb positioning
-- Clothing details (colors, patterns, fit, style)
+  return {redrawnImage: response.media.url};
+}
 
-OBJECTS:
-- List every single object visible
-- Exact colors (use specific color names/hex if possible)
-- Textures and materials
-- Positions relative to each other
-- Any text, logos, or symbols with exact wording
-
-BACKGROUND:
-- Setting description
-- All background elements and their positions
-- Lighting direction and quality
-- Shadows and highlights
-- Color palette
-
-TECHNICAL DETAILS:
-- Image quality/resolution assessment
-- Any blur, noise, or artifacts present
-- Lighting conditions
-- Color temperature and mood
-
-Be extremely specific - this description will be used to recreate the image exactly.`
-      },
+// Approach 2: With detailed analysis first
+async function tryWithDetailedAnalysis(input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput> {
+  // First, get detailed description
+  const analysisResponse = await ai.generate({
+    prompt: [
+      {media: {url: input.photoDataUri}},
+      {text: 'Describe this image in complete detail, including all objects, people, colors, positions, expressions, clothing, background elements, and any text or symbols present.'}
     ],
     model: 'googleai/gemini-2.0-flash-preview',
   });
 
-  // Step 2: Use the detailed description to recreate
-  const {media} = await ai.generate({
+  // Then generate based on description + reference
+  const response = await ai.generate({
     prompt: [
       {media: {url: input.photoDataUri}},
-      {
-        text: `Reference image provided above. Using this detailed analysis: "${description.text()}"
-
-CREATE IDENTICAL IMAGE with these strict requirements:
-
-FIDELITY RULES:
-- Use the reference image as the absolute ground truth
-- Every pixel must correspond to the original
-- Zero creative interpretation allowed
-- No style changes or artistic improvements
-- Maintain exact same composition and framing
-
-ENHANCEMENT ONLY:
-- Increase resolution to high definition
-- Remove blur, noise, and compression artifacts
-- Enhance sharpness and clarity
-- Improve color vibrancy naturally
-- Better contrast and lighting
-- Smoother gradients
-
-VERIFICATION CHECKLIST:
-✓ Same number of people/objects
-✓ Identical poses and expressions  
-✓ Same clothing and colors
-✓ Same background elements
-✓ Same lighting and shadows
-✓ Same text/signs if any
-✓ Same overall mood and atmosphere
-
-OUTPUT: A high-quality version that looks like the exact same photo/image taken with better equipment.`
-      },
+      {text: `Looking at this reference image, create a high-definition version with these exact details: ${analysisResponse.text()}. The output should be identical in content but with enhanced quality, sharpness, and resolution.`}
     ],
     model: 'googleai/gemini-2.0-flash-preview-image-generation',
     config: {
-      responseModalities: ['IMAGE'],
+      responseModalities: ['TEXT', 'IMAGE'],
+    },
+  });
+
+  if (!response.media?.url) {
+    throw new Error('No image generated in detailed analysis approach');
+  }
+
+  return {redrawnImage: response.media.url};
+}
+
+// Approach 3: Very simple prompt
+async function tryWithSimplePrompt(input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput> {
+  const response = await ai.generate({
+    prompt: [
+      {media: {url: input.photoDataUri}},
+      {text: 'Make this image higher quality and resolution while keeping everything exactly the same.'}
+    ],
+    model: 'googleai/gemini-2.0-flash-preview-image-generation',
+    config: {
+      responseModalities: ['TEXT', 'IMAGE'],
       temperature: 0,
     },
   });
 
-  return {redrawnImage: media.url!};
-};
+  if (!response.media?.url) {
+    throw new Error('No image generated in simple prompt approach');
+  }
 
-// Method 3: Alternative approach using different model parameters
-export async function enhanceImageAlternative(input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput> {
-  return enhanceImageAlternativeFlow(input);
+  return {redrawnImage: response.media.url};
 }
 
-const enhanceImageAlternativeFlow = ai.defineFlow(
-  {
-    name: 'enhanceImageAlternativeFlow', 
-    inputSchema: EnhanceAndRedrawImageInputSchema,
-    outputSchema: EnhanceAndRedrawImageOutputSchema,
-  },
-  async input => {
-    // Try multiple attempts with different prompting strategies
-    const attempts = [
-      // Attempt 1: Direct upscaling instruction
-      {
-        text: "Upscale this image to higher resolution. Keep everything exactly the same, just make it clearer and sharper.",
-        temp: 0
-      },
-      // Attempt 2: Photo restoration approach
-      {
-        text: "Restore and enhance this image like a professional photo editor would. Remove any blur, noise, or quality issues while keeping all content identical.",
-        temp: 0.1
-      },
-      // Attempt 3: Technical enhancement
-      {
-        text: "Apply super-resolution enhancement to this image. Increase pixel density and improve clarity without changing any visual content.",
-        temp: 0
-      }
-    ];
+// Approach 4: Different configuration
+async function tryWithDifferentConfig(input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput> {
+  const response = await ai.generate({
+    prompt: [
+      {media: {url: input.photoDataUri}},
+      {text: 'Reproduce this image with better quality, maintaining all original details, colors, positions, and elements exactly as shown.'}
+    ],
+    model: 'googleai/gemini-2.0-flash-preview-image-generation',
+    config: {
+      responseModalities: ['IMAGE'], // Try IMAGE only
+      temperature: 0.1,
+    },
+  });
 
-    for (const attempt of attempts) {
-      try {
-        const {media} = await ai.generate({
-          prompt: [
-            {media: {url: input.photoDataUri}},
-            {text: attempt.text},
-          ],
-          model: 'googleai/gemini-2.0-flash-preview-image-generation',
-          config: {
-            responseModalities: ['IMAGE'],
-            temperature: attempt.temp,
-          },
-        });
+  if (!response.media?.url) {
+    throw new Error('No image generated in different config approach');
+  }
+
+  return {redrawnImage: response.media.url};
+}
+
+// Alternative: Try using Gemini Flash for text analysis + generation
+export async function enhanceWithTextGuidance(input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput> {
+  try {
+    // Get very detailed description using regular Gemini
+    const description = await ai.generate({
+      prompt: [
+        {media: {url: input.photoDataUri}},
+        {text: `Provide an extremely detailed description of this image that could be used to recreate it exactly. Include:
+        1. Overall composition and layout
+        2. Every person/object and their exact positions
+        3. Facial expressions, poses, gestures
+        4. Clothing details, colors, patterns
+        5. Background elements and their positions  
+        6. Lighting, shadows, color palette
+        7. Any text, signs, or symbols
+        8. Style and mood of the image
+        9. Technical aspects (blur, focus, etc.)
         
-        if (media?.url) {
-          return {redrawnImage: media.url};
-        }
-      } catch (error) {
-        console.log(`Attempt failed, trying next approach...`);
-        continue;
-      }
+        Be extremely specific about positions, colors, and details.`}
+      ],
+      model: 'googleai/gemini-2.0-flash-preview',
+    });
+
+    // Now use that description with the reference image
+    const enhancedResponse = await ai.generate({
+      prompt: [
+        {media: {url: input.photoDataUri}},
+        {text: `Using this reference image and following this exact description: "${description.text()}"
+        
+        Create a high-definition, enhanced version that matches every single detail described above. The result should look like the same photo taken with professional equipment and processed for maximum quality.
+        
+        Requirements:
+        - Identical composition and positioning
+        - Same people/objects in same poses
+        - Same colors and lighting
+        - Same background elements
+        - Enhanced resolution and clarity
+        - Reduced noise and improved sharpness
+        - No additions or changes to content`}
+      ],
+      model: 'googleai/gemini-2.0-flash-preview-image-generation',
+      config: {
+        responseModalities: ['TEXT', 'IMAGE'],
+        temperature: 0,
+      },
+    });
+
+    if (!enhancedResponse.media?.url) {
+      throw new Error('No enhanced image generated');
     }
+
+    return {redrawnImage: enhancedResponse.media.url};
+
+  } catch (error) {
+    throw new Error(`Text-guided enhancement failed: ${error}`);
+  }
+}
+
+// Debug version that provides more error information
+export async function enhanceWithDebug(input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput & {debug?: string}> {
+  try {
+    console.log('Starting image enhancement...');
     
-    throw new Error("All enhancement attempts failed");
-  }
-);
+    const response = await ai.generate({
+      prompt: [
+        {media: {url: input.photoDataUri}},
+        {text: 'Create a clearer, higher resolution version of this image.'}
+      ],
+      model: 'googleai/gemini-2.0-flash-preview-image-generation',
+      config: {
+        responseModalities: ['TEXT', 'IMAGE'],
+      },
+    });
 
-// Method 4: Try using Imagen or other models if available
-export async function enhanceWithDifferentModel(input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput> {
-  const models = [
-    'googleai/gemini-2.0-flash-preview-image-generation',
-    'googleai/imagen-3.0-generate-001', // If available
-    'googleai/imagen-3.0-fast-generate-001', // If available
-  ];
+    console.log('Generation response:', {
+      hasText: !!response.text(),
+      hasMedia: !!response.media,
+      mediaUrl: response.media?.url,
+      mediaContentType: response.media?.contentType
+    });
 
-  for (const model of models) {
-    try {
-      const {media} = await ai.generate({
-        prompt: [
-          {media: {url: input.photoDataUri}},
-          {text: "Enhance image quality. Same content, better resolution and clarity."},
-        ],
-        model: model,
-        config: {
-          responseModalities: ['IMAGE'],
-          temperature: 0,
-        },
-      });
-      
-      if (media?.url) {
-        return {redrawnImage: media.url};
-      }
-    } catch (error) {
-      console.log(`Model ${model} failed, trying next...`);
-      continue;
+    if (!response.media?.url) {
+      return {
+        redrawnImage: input.photoDataUri, // Return original as fallback
+        debug: `No media URL returned. Response text: ${response.text()}`
+      };
     }
+
+    return {
+      redrawnImage: response.media.url,
+      debug: 'Success'
+    };
+
+  } catch (error) {
+    console.error('Enhancement error:', error);
+    return {
+      redrawnImage: input.photoDataUri, // Return original as fallback
+      debug: `Error: ${error}`
+    };
   }
-  
-  throw new Error("All models failed to enhance image");
 }
