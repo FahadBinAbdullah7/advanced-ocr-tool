@@ -21,11 +21,13 @@ CRITICAL INSTRUCTIONS:
 6. Preserve table structures and bullet points if present
 7. Return clean, readable text without adding commentary
 8. Extract text systematically from top to bottom, left to right
+9. If you find a table, extract it in a clean, pipe-delimited Markdown format that can be easily pasted into a Google Doc or spreadsheet. Add a "TABLE:" section at the end of your response for this.
 
 Format your response as:
 TEXT: [all extracted text here, maintaining original structure]
 MATH: [mathematical equations found, one per line, or "None" if no math]
-CONFIDENCE: [your confidence percentage 85-98]`,
+CONFIDENCE: [your confidence percentage 85-98]
+TABLE: [pipe-delimited markdown table, or "None"]`,
             },
             {
               inline_data: {
@@ -51,7 +53,7 @@ CONFIDENCE: [your confidence percentage 85-98]`,
 
 
     const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GOOGLE_GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`,
       {
         method: "POST",
         headers: {
