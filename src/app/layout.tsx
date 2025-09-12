@@ -4,7 +4,7 @@ import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 
 export const metadata: Metadata = {
-  title: 'VisionCraft AI',
+  title: 'Advanced OCR Tool',
   description: 'AI-powered OCR and Image Enhancement Tool',
 };
 
