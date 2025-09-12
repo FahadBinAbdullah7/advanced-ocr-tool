@@ -35,9 +35,14 @@ import {
   Palette,
   Code,
   ArrowRight,
+  Paintbrush,
+  ScanSearch,
+  X,
 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import Link from "next/link"
+import { enhanceAndRedrawImage } from "@/ai/flows/enhance-and-redraw-image"
+import { Switch } from "@/components/ui/switch"
 
 interface QACFix {
   original: string
@@ -53,10 +58,11 @@ interface DetectedImage {
   y: number
   width: number
   height: number
-  enhancedCanvas?: HTMLCanvasElement
+  enhancedImageUrl?: string
   base64?: string
   isProcessing?: boolean
   description?: string
+  colorize?: boolean
 }
 
 interface ExtractedContent {
@@ -73,6 +79,13 @@ interface ExtractedContent {
   detectedImages?: DetectedImage[]
 }
 
+interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export function OcrTool() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [fileType, setFileType] = useState<"pdf" | "image" | null>(null)
@@ -81,7 +94,7 @@ export function OcrTool() {
   const [totalPages, setTotalPages] = useState(0)
   const [pageInput, setPageInput] = useState("1")
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>(["eng"])
-  const [isProcessing, setIsProcessing] = useState(false)
+  const [isProcessing, setIsProcessing] = useState<boolean>(false)
   const [isLoadingFile, setIsLoadingFile] = useState(false)
   const [isLoadingOCR, setIsLoadingOCR] = useState(false)
   const [isQACProcessing, setIsQACProcessing] = useState(false)
@@ -97,6 +110,11 @@ export function OcrTool() {
   const [zoom, setZoom] = useState(100)
   const [fileError, setFileError] = useState<string | null>(null)
   const [librariesLoaded, setLibrariesLoaded] = useState(false)
+  const [isSelectingArea, setIsSelectingArea] = useState(false);
+  const [isCropping, setIsCropping] = useState(false);
+  const [cropRect, setCropRect] = useState<CropRect | null>(null);
+  const [startCoords, setStartCoords] = useState<{ x: number; y: number } | null>(null);
+  const [originalCanvasData, setOriginalCanvasData] = useState<ImageData | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -165,6 +183,17 @@ export function OcrTool() {
     }
     return null
   }
+  
+  const saveOriginalCanvas = () => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        setOriginalCanvasData(ctx.getImageData(0, 0, canvas.width, canvas.height));
+      }
+    }
+  };
+
 
   // Load PDF file
   const loadPDF = async (file: File) => {
@@ -185,6 +214,7 @@ export function OcrTool() {
       setCurrentPage(1)
       setPageInput("1")
       await renderPDFPage(pdf, 1)
+      saveOriginalCanvas();
     } catch (error) {
       console.error("Error loading PDF:", error)
       setFileError("Failed to load PDF. Please make sure it's a valid PDF file.")
@@ -252,6 +282,7 @@ export function OcrTool() {
             setTotalPages(1)
             setCurrentPage(1)
             setPageInput("1")
+            saveOriginalCanvas();
             resolve()
           } catch (error) {
             reject(error)
@@ -292,11 +323,94 @@ export function OcrTool() {
       }
 
       await page.render(renderContext).promise
+      saveOriginalCanvas();
     } catch (error) {
       console.error("Error rendering page:", error)
       setFileError(`Failed to render page ${pageNumber}`)
     }
   }
+  
+    const redrawCanvasWithSelection = useCallback(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx || !originalCanvasData) return;
+
+    // Restore original image
+    ctx.putImageData(originalCanvasData, 0, 0);
+
+    // Draw selection rectangle
+    if (cropRect && isSelectingArea) {
+      ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cropRect.x, cropRect.y, cropRect.width, cropRect.height);
+    }
+  }, [originalCanvasData, cropRect, isSelectingArea]);
+
+  useEffect(() => {
+    redrawCanvasWithSelection();
+  }, [cropRect, isSelectingArea, redrawCanvasWithSelection]);
+
+  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isSelectingArea) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setStartCoords({ x, y });
+    setCropRect({ x, y, width: 0, height: 0 });
+    setIsCropping(true);
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isCropping || !startCoords || !isSelectingArea) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const currentX = e.clientX - rect.left;
+    const currentY = e.clientY - rect.top;
+    
+    const x = Math.min(startCoords.x, currentX);
+    const y = Math.min(startCoords.y, currentY);
+    const width = Math.abs(currentX - startCoords.x);
+    const height = Math.abs(currentY - startCoords.y);
+    
+    setCropRect({ x, y, width, height });
+  };
+
+  const handleCanvasMouseUp = () => {
+    setIsCropping(false);
+  };
+
+  const handleCrop = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx || !cropRect || cropRect.width === 0 || cropRect.height === 0) return;
+
+    const croppedImageData = ctx.getImageData(cropRect.x, cropRect.y, cropRect.width, cropRect.height);
+    
+    canvas.width = cropRect.width;
+    canvas.height = cropRect.height;
+    ctx.putImageData(croppedImageData, 0, 0);
+    
+    setIsSelectingArea(false);
+    setCropRect(null);
+    saveOriginalCanvas(); // Save the new cropped state as the original
+  };
+
+  const cancelSelection = () => {
+    setIsSelectingArea(false);
+    setCropRect(null);
+    if (originalCanvasData) {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
+        if (canvas && ctx) {
+            canvas.width = originalCanvasData.width;
+            canvas.height = originalCanvasData.height;
+            ctx.putImageData(originalCanvasData, 0, 0);
+        }
+    }
+  };
 
   const handleFileUpload = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -433,7 +547,7 @@ export function OcrTool() {
 
   // Convert canvas to base64 for API calls
   const canvasToBase64 = (canvas: HTMLCanvasElement): string => {
-    return canvas.toDataURL("image/png", 1.0).split(",")[1]
+    return canvas.toDataURL("image/png", 1.0)
   }
 
   // Detect non-text visual elements in the canvas using AI
@@ -442,7 +556,7 @@ export function OcrTool() {
       setImageStatus("Analyzing for non-text visual elements...")
       setImageProgress(20)
 
-      const imageBase64 = canvasToBase64(canvas)
+      const imageBase64 = canvasToBase64(canvas).split(",")[1];
 
       const prompt = `Analyze this image and identify ONLY non-text visual elements. I want to find:
 
@@ -574,6 +688,7 @@ COORDINATES:
                     width,
                     height,
                     description: description,
+                    colorize: false,
                   })
 
                   console.log(`Detected visual element: ${description} at (${x},${y}) size ${width}x${height}`)
@@ -590,116 +705,65 @@ COORDINATES:
     return images
   }
 
-  // Enhance image quality
-  const enhanceImage = async (detectedImage: DetectedImage) => {
-    try {
-      setIsImageProcessing(true)
-      setImageStatus("Enhancing image quality...")
-      setImageProgress(30)
-
-      // Create enhanced canvas with improved quality
-      const enhancedCanvas = document.createElement("canvas")
-      const sourceCanvas = detectedImage.canvas
-
-      // Scale up for better quality
-      const scaleFactor = 2
-      enhancedCanvas.width = sourceCanvas.width * scaleFactor
-      enhancedCanvas.height = sourceCanvas.height * scaleFactor
-
-      const enhancedCtx = enhancedCanvas.getContext("2d")
-      if (!enhancedCtx) throw new Error("Could not get enhanced canvas context")
-
-      // Apply image enhancement techniques
-      enhancedCtx.imageSmoothingEnabled = true
-      enhancedCtx.imageSmoothingQuality = "high"
-
-      // Draw scaled up image
-      enhancedCtx.drawImage(sourceCanvas, 0, 0, enhancedCanvas.width, enhancedCanvas.height)
-
-      // Apply sharpening filter
-      const imageData = enhancedCtx.getImageData(0, 0, enhancedCanvas.width, enhancedCanvas.height)
-      const data = imageData.data
-
-      // Simple sharpening kernel
-      const sharpenKernel = [0, -1, 0, -1, 5, -1, 0, -1, 0]
-
-      // Apply basic contrast enhancement
-      for (let i = 0; i < data.length; i += 4) {
-        // Increase contrast
-        data[i] = Math.min(255, Math.max(0, (data[i] - 128) * 1.2 + 128)) // Red
-        data[i + 1] = Math.min(255, Math.max(0, (data[i + 1] - 128) * 1.2 + 128)) // Green
-        data[i + 2] = Math.min(255, Math.max(0, (data[i + 2] - 128) * 1.2 + 128)) // Blue
-      }
-
-      enhancedCtx.putImageData(imageData, 0, 0)
-
-      setImageProgress(100)
-      setImageStatus("Image enhancement completed!")
-
-      return enhancedCanvas
-    } catch (error) {
-      console.error("Image enhancement error:", error)
-      setImageStatus("Image enhancement failed")
-      throw error
-    } finally {
-      setIsImageProcessing(false)
-    }
-  }
-
-  // Convert image to base64
-  const convertToBase64 = (canvas: HTMLCanvasElement): string => {
-    return canvas.toDataURL("image/png", 1.0)
-  }
-
   // Handle image processing actions
   const handleImageAction = async (detectedImage: DetectedImage, action: "enhance" | "base64") => {
-    if (!currentExtraction) return
-
+    if (!currentExtraction) return;
+  
     try {
-      const updatedImage = { ...detectedImage, isProcessing: true }
-
+      const updatedImage = { ...detectedImage, isProcessing: true };
+  
       // Update the current extraction with processing state
-      const updatedExtraction = {
-        ...currentExtraction,
-        detectedImages:
-          currentExtraction.detectedImages?.map((img) => (img.id === detectedImage.id ? updatedImage : img)) || [],
-      }
-      setCurrentExtraction(updatedExtraction)
-
+      const updateDetectedImages = (images: DetectedImage[], updated: DetectedImage) => 
+        images.map((img) => (img.id === updated.id ? updated : img));
+  
+      setCurrentExtraction(prev => ({
+        ...prev!,
+        detectedImages: updateDetectedImages(prev!.detectedImages!, updatedImage),
+      }));
+  
       switch (action) {
         case "enhance":
-          const enhancedCanvas = await enhanceImage(detectedImage)
-          updatedImage.enhancedCanvas = enhancedCanvas
-          break
+          const dataUri = canvasToBase64(detectedImage.canvas);
+          const result = await enhanceAndRedrawImage({ photoDataUri: dataUri, colorize: detectedImage.colorize || false });
+          updatedImage.enhancedImageUrl = result.redrawnImage;
+          break;
         case "base64":
-          const base64 = convertToBase64(detectedImage.canvas)
-          updatedImage.base64 = base64
-          break
+          const base64 = canvasToBase64(detectedImage.canvas);
+          updatedImage.base64 = base64;
+          break;
       }
-
-      updatedImage.isProcessing = false
-
+  
+      updatedImage.isProcessing = false;
+  
       // Update the extraction with the processed image
-      const finalExtraction = {
-        ...currentExtraction,
-        detectedImages:
-          currentExtraction.detectedImages?.map((img) => (img.id === detectedImage.id ? updatedImage : img)) || [],
-      }
-
-      setCurrentExtraction(finalExtraction)
-      setExtractedContent((prev) => prev.map((item) => (item === currentExtraction ? finalExtraction : item)))
+      setCurrentExtraction(prev => ({
+        ...prev!,
+        detectedImages: updateDetectedImages(prev!.detectedImages!, updatedImage),
+      }));
+  
     } catch (error) {
-      console.error(`Error in ${action} action:`, error)
+      console.error(`Error in ${action} action:`, error);
       // Reset processing state on error
-      const resetImage = { ...detectedImage, isProcessing: false }
-      const resetExtraction = {
-        ...currentExtraction,
-        detectedImages:
-          currentExtraction.detectedImages?.map((img) => (img.id === detectedImage.id ? resetImage : img)) || [],
-      }
-      setCurrentExtraction(resetExtraction)
+      const resetImage = { ...detectedImage, isProcessing: false };
+      setCurrentExtraction(prev => ({
+        ...prev!,
+        detectedImages: prev!.detectedImages!.map((img) => (img.id === detectedImage.id ? resetImage : img)),
+      }));
     }
-  }
+  };
+
+  const handleColorizeToggle = (id: string, checked: boolean) => {
+    if (!currentExtraction) return;
+  
+    const updatedImages = currentExtraction.detectedImages?.map(img => 
+      img.id === id ? { ...img, colorize: checked } : img
+    );
+  
+    setCurrentExtraction({
+      ...currentExtraction,
+      detectedImages: updatedImages,
+    });
+  };
 
   // Advanced AI-powered OCR with image detection
   const performAdvancedOCR = async (canvas: HTMLCanvasElement) => {
@@ -722,7 +786,7 @@ COORDINATES:
         setOcrStatus("Connecting to Google Gemini AI...")
         setOcrProgress(30)
 
-        const imageBase64 = canvasToBase64(canvas)
+        const imageBase64 = canvasToBase64(canvas).split(",")[1];
         
         const apiResponse = await fetch("/api/ocr", {
           method: "POST",
@@ -805,7 +869,7 @@ COORDINATES:
     }
 
     // Extract math section
-    const mathMatch = aiResponse.match(/MATH:\s*([\s\S]*?)(?=CONFIDENCE:|$)/i)
+    const mathMatch = aiResponse.match(/MATH:\s*([\sS]*?)(?=CONFIDENCE:|$)/i)
     if (mathMatch) {
       const mathContent = mathMatch[1].trim()
       if (mathContent && mathContent !== "None" && mathContent !== "No mathematical equations found") {
@@ -851,8 +915,7 @@ COORDINATES:
       setQacStatus("Connecting to Gemini AI for comprehensive text and math correction...")
       setQacProgress(40)
 
-      // Get the original image for mathematical expression comparison
-      const originalImageBase64 = canvasRef.current ? canvasToBase64(canvasRef.current) : null
+      const originalImageBase64 = canvasRef.current ? canvasToBase64(canvasRef.current).split(",")[1] : null
 
       const prompt = `You are an expert text and mathematical expression correction specialist. Analyze the following OCR-extracted text and perform comprehensive quality assurance:
 
@@ -1058,7 +1121,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
       }
 
       setCurrentExtraction(updatedExtraction)
-      setExtractedContent((prev) => prev.map((item) => (item === currentExtraction ? updatedExtraction : item)))
+      setExtractedContent((prev) => prev.map((item) => (item.pageNumber === updatedExtraction.pageNumber ? updatedExtraction : item)))
       setQacStatus("Advanced quality assurance check completed successfully!")
     } catch (error) {
       console.error("Error in Enhanced QAC:", error)
@@ -1183,9 +1246,9 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                       </div>
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground mb-2">
+                  <div className="text-sm text-muted-foreground mb-2">
                     {selectedFile ? selectedFile.name : "Drag and drop your PDF or image here, or click to browse"}
-                  </p>
+                  </div>
                   <Button variant="outline" size="sm" disabled={isLoadingFile || isLoadingOCR || !librariesLoaded}>
                     {isLoadingFile ? (
                       <>
@@ -1208,19 +1271,19 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                   <div className="mt-4 p-3 bg-muted rounded-lg">
                     <div className="flex items-center gap-2">
                       {fileType === "pdf" ? <FileText className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
-                      <p className="text-sm font-medium">{selectedFile.name}</p>
+                      <div className="text-sm font-medium">{selectedFile.name}</div>
                     </div>
-                    <p className="text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                       {fileType === "pdf" && totalPages > 0 && ` • ${totalPages} pages`}
                       {fileType === "image" && " • Image file"}
-                    </p>
+                    </div>
                   </div>
                 )}
                 {fileError && (
                   <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center gap-2">
                     <AlertCircle className="h-4 w-4 text-destructive" />
-                    <p className="text-sm text-destructive">{fileError}</p>
+                    <div className="text-sm text-destructive">{fileError}</div>
                   </div>
                 )}
               </CardContent>
@@ -1319,9 +1382,9 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                       </Badge>
                     ))}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">
+                  <div className="text-xs text-muted-foreground mt-2">
                     Active: {selectedLanguages.join(" + ")} | Multi-AI OCR Processing
-                  </p>
+                  </div>
                 </div>
 
                 <div>
@@ -1365,7 +1428,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                   <span>{ocrProgress}%</span>
                 </div>
                 <Progress value={ocrProgress} className="w-full" />
-                <p className="text-xs text-muted-foreground text-center">{ocrStatus}</p>
+                <div className="text-xs text-muted-foreground text-center">{ocrStatus}</div>
               </div>
             )}
 
@@ -1377,7 +1440,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                   <span>{imageProgress}%</span>
                 </div>
                 <Progress value={imageProgress} className="w-full" />
-                <p className="text-xs text-muted-foreground text-center">{imageStatus}</p>
+                <div className="text-xs text-muted-foreground text-center">{imageStatus}</div>
               </div>
             )}
 
@@ -1398,9 +1461,9 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                     <ArrowRight className="h-4 w-4 ml-2" />
                   </Button>
                 </Link>
-                <p className="text-xs text-muted-foreground mt-2 text-center">
+                <div className="text-xs text-muted-foreground mt-2 text-center">
                   Enhance and convert images to Base64
-                </p>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -1419,22 +1482,45 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleZoomChange(Math.max(50, zoom - 25))}
-                      disabled={!selectedFile}
+                      onClick={() => setIsSelectingArea(!isSelectingArea)}
+                      disabled={!selectedFile || isProcessing || isLoadingFile}
+                      className={isSelectingArea ? "border border-primary text-primary" : ""}
                     >
-                      <ZoomOut className="h-4 w-4" />
+                      <ScanSearch className="h-4 w-4" />
                     </Button>
-                    <span className="text-sm font-medium">{zoom}%</span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleZoomChange(Math.min(200, zoom + 25))}
-                      disabled={!selectedFile}
-                    >
-                      <ZoomIn className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleZoomChange(Math.max(50, zoom - 25))}
+                        disabled={!selectedFile}
+                      >
+                        <ZoomOut className="h-4 w-4" />
+                      </Button>
+                      <span className="text-sm font-medium">{zoom}%</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleZoomChange(Math.min(200, zoom + 25))}
+                        disabled={!selectedFile}
+                      >
+                        <ZoomIn className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
+                  {isSelectingArea && (
+                    <div className="mt-2 flex gap-2">
+                      <Button onClick={handleCrop} disabled={!cropRect || cropRect.width === 0} size="sm">
+                        <Crop className="mr-2 h-4 w-4" />
+                        Crop to Selection
+                      </Button>
+                      <Button onClick={cancelSelection} variant="ghost" size="sm">
+                        <X className="mr-2 h-4 w-4" />
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
               </CardHeader>
               <CardContent className="p-4 h-full">
                 {selectedFile ? (
@@ -1443,9 +1529,14 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                       <canvas
                         ref={canvasRef}
                         className="shadow-lg bg-white"
+                        onMouseDown={handleCanvasMouseDown}
+                        onMouseMove={handleCanvasMouseMove}
+                        onMouseUp={handleCanvasMouseUp}
+                        onMouseLeave={handleCanvasMouseUp}
                         style={{
                           maxWidth: "100%",
                           height: "auto",
+                          cursor: isSelectingArea ? 'crosshair' : 'default'
                         }}
                       />
                     </div>
@@ -1454,7 +1545,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                   <div className="h-full flex items-center justify-center">
                     <div className="text-center">
                       <Loader2 className="h-16 w-16 mx-auto mb-4 animate-spin text-muted-foreground" />
-                      <p className="text-muted-foreground">Loading file...</p>
+                      <div className="text-muted-foreground">Loading file...</div>
                     </div>
                   </div>
                 ) : (
@@ -1464,10 +1555,10 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                         <FileText className="h-16 w-16" />
                         <ImageIcon className="h-16 w-16" />
                       </div>
-                      <p>Upload a PDF or image to preview</p>
-                      <p className="text-xs mt-1">
+                      <div>Upload a PDF or image to preview</div>
+                      <div className="text-xs mt-1">
                         {librariesLoaded ? "Ready for AI-powered text extraction" : "Loading libraries..."}
-                      </p>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1556,7 +1647,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                                 <span>{qacProgress}%</span>
                               </div>
                               <Progress value={qacProgress} className="w-full" />
-                              <p className="text-xs text-muted-foreground text-center">{qacStatus}</p>
+                              <div className="text-xs text-muted-foreground text-center">{qacStatus}</div>
                             </div>
                           )}
 
@@ -1580,14 +1671,14 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                           {/* Mathematical Formatting Info */}
                           {currentExtraction.isQACProcessed && (
                             <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
-                              <p className="text-xs text-blue-700">
+                              <div className="text-xs text-blue-700">
                                 ✨{" "}
                                 <strong>
                                   Mathematical expressions have been formatted for MS Word/Google Docs compatibility
                                 </strong>
                                 <br />• Superscripts: x², x³, x⁴ • Subscripts: H₂O, x₁, x₂ • Greek letters: π, α, β, θ
                                 <br />• Symbols: ∫, ∑, √, ±, ≤, ≥, ∞ • Ready to copy-paste into documents!
-                              </p>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1595,8 +1686,8 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                         <div className="h-[320px] flex items-center justify-center text-muted-foreground">
                           <div className="text-center">
                             <FileText className="h-12 w-12 mx-auto mb-2" />
-                            <p>No text extracted yet</p>
-                            <p className="text-xs mt-1">Upload a PDF or image and extract text using AI</p>
+                            <div>No text extracted yet</div>
+                            <div className="text-xs mt-1">Upload a PDF or image and extract text using AI</div>
                           </div>
                         </div>
                       )}
@@ -1622,8 +1713,8 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                         <div className="h-[320px] flex items-center justify-center text-muted-foreground">
                           <div className="text-center">
                             <Calculator className="h-12 w-12 mx-auto mb-2" />
-                            <p>No math equations detected</p>
-                            <p className="text-xs mt-1">Mathematical expressions will be auto-detected by AI</p>
+                            <div>No math equations detected</div>
+                            <div className="text-xs mt-1">Mathematical expressions will be auto-detected by AI</div>
                           </div>
                         </div>
                       )}
@@ -1650,8 +1741,8 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                               <TableBody>
                                 {currentExtraction.qacFixes.map((fix, index) => (
                                   <TableRow key={index}>
-                                    <TableCell className="font-mono text-sm bg-red-50">{fix.original}</TableCell>
-                                    <TableCell className="font-mono text-sm bg-green-50">{fix.corrected}</TableCell>
+                                    <TableCell className="font-mono text-sm bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200">{fix.original}</TableCell>
+                                    <TableCell className="font-mono text-sm bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-200">{fix.corrected}</TableCell>
                                     <TableCell className="text-sm">
                                       <Badge variant={fix.type === "Math Formatting" ? "default" : "secondary"}>
                                         {fix.type}
@@ -1667,8 +1758,8 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                           <div className="h-[320px] flex items-center justify-center text-muted-foreground">
                             <div className="text-center">
                               <CheckCheck className="h-12 w-12 mx-auto mb-2" />
-                              <p>No fixes needed</p>
-                              <p className="text-xs mt-1">The extracted text appears to be error-free</p>
+                              <div>No fixes needed</div>
+                              <div className="text-xs mt-1">The extracted text appears to be error-free</div>
                             </div>
                           </div>
                         )
@@ -1676,10 +1767,10 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                         <div className="h-[320px] flex items-center justify-center text-muted-foreground">
                           <div className="text-center">
                             <Wand2 className="h-12 w-12 mx-auto mb-2" />
-                            <p>Advanced QAC not performed yet</p>
-                            <p className="text-xs mt-1">
+                            <div>Advanced QAC not performed yet</div>
+                            <div className="text-xs mt-1">
                               Click "Advanced QAC Text & Math" to enhance text and mathematical formatting
-                            </p>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -1692,21 +1783,14 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                       currentExtraction.detectedImages &&
                       currentExtraction.detectedImages.length > 0 ? (
                         <div className="space-y-4">
-                          {currentExtraction.detectedImages.map((detectedImage, index) => (
+                          {currentExtraction.detectedImages.map((detectedImage) => (
                             <Card key={detectedImage.id} className="p-4">
                               <div className="space-y-3">
                                 {/* Image Canvas */}
                                 <div className="flex justify-center">
                                   <canvas
                                     ref={(canvas) => {
-                                      if (canvas && detectedImage.enhancedCanvas) {
-                                        const ctx = canvas.getContext("2d")
-                                        if (ctx) {
-                                          canvas.width = detectedImage.enhancedCanvas.width
-                                          canvas.height = detectedImage.enhancedCanvas.height
-                                          ctx.drawImage(detectedImage.enhancedCanvas, 0, 0)
-                                        }
-                                      } else if (canvas) {
+                                      if (canvas) {
                                         const ctx = canvas.getContext("2d")
                                         if (ctx) {
                                           canvas.width = detectedImage.canvas.width
@@ -1716,45 +1800,85 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                                       }
                                     }}
                                     className="border rounded-lg shadow-sm max-w-full h-auto"
-                                    style={{ maxHeight: "200px" }}
+                                    style={{ maxHeight: "150px" }}
                                   />
                                 </div>
+                                
+                                {detectedImage.enhancedImageUrl && (
+                                  <div className="flex justify-center">
+                                     <img
+                                      src={detectedImage.enhancedImageUrl}
+                                      alt="Enhanced"
+                                      className="border rounded-lg shadow-sm max-w-full h-auto"
+                                      style={{ maxHeight: "150px" }}
+                                    />
+                                  </div>
+                                )}
+
 
                                 {/* Image Info */}
                                 <div className="text-xs text-muted-foreground text-center">
                                   Size: {detectedImage.width} × {detectedImage.height}px
-                                  {detectedImage.enhancedCanvas && " • Enhanced"}
+                                  {detectedImage.enhancedImageUrl && " • Enhanced"}
                                   {detectedImage.description && ` • ${detectedImage.description}`}
                                 </div>
 
                                 {/* Action Buttons */}
-                                <div className="flex gap-2 justify-center">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleImageAction(detectedImage, "enhance")}
-                                    disabled={detectedImage.isProcessing || isImageProcessing}
-                                  >
-                                    {detectedImage.isProcessing ? (
-                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                    ) : (
-                                      <Palette className="h-3 w-3 mr-1" />
+                                <div className="flex flex-col gap-2 justify-center">
+                                   <div className="flex items-center space-x-2">
+                                    <Switch 
+                                      id={`colorize-switch-${detectedImage.id}`} 
+                                      checked={!!detectedImage.colorize} 
+                                      onCheckedChange={(checked) => handleColorizeToggle(detectedImage.id, checked)}
+                                    />
+                                    <Label htmlFor={`colorize-switch-${detectedImage.id}`} className="flex items-center gap-2 text-sm">
+                                      <Paintbrush className="h-4 w-4" />
+                                      Colorize Image
+                                    </Label>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleImageAction(detectedImage, "enhance")}
+                                      disabled={detectedImage.isProcessing || isImageProcessing}
+                                    >
+                                      {detectedImage.isProcessing ? (
+                                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                      ) : (
+                                        <Palette className="h-3 w-3 mr-1" />
+                                      )}
+                                      {detectedImage.colorize ? 'Colorize & Enhance' : 'Enhance'}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleImageAction(detectedImage, "base64")}
+                                      disabled={detectedImage.isProcessing || isImageProcessing}
+                                    >
+                                      {detectedImage.isProcessing ? (
+                                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                      ) : (
+                                        <Code className="h-3 w-3 mr-1" />
+                                      )}
+                                      Base64
+                                    </Button>
+                                    {detectedImage.enhancedImageUrl && (
+                                       <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                          const link = document.createElement("a");
+                                          link.download = `enhanced-image-${detectedImage.id}.png`;
+                                          link.href = detectedImage.enhancedImageUrl!;
+                                          link.click();
+                                        }}
+                                      >
+                                        <Download className="h-3 w-3 mr-1" />
+                                        Download
+                                      </Button>
                                     )}
-                                    Enhance
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleImageAction(detectedImage, "base64")}
-                                    disabled={detectedImage.isProcessing || isImageProcessing}
-                                  >
-                                    {detectedImage.isProcessing ? (
-                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                    ) : (
-                                      <Code className="h-3 w-3 mr-1" />
-                                    )}
-                                    Base64
-                                  </Button>
+                                  </div>
                                 </div>
 
                                 {/* Results Display */}
@@ -1775,25 +1899,6 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                                     </Button>
                                   </div>
                                 )}
-                                {detectedImage.enhancedCanvas && (
-                                  <div className="mt-3">
-                                    <Label className="text-xs font-medium">Enhanced Image:</Label>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="mt-1"
-                                      onClick={() => {
-                                        const link = document.createElement("a")
-                                        link.download = `enhanced-image-${detectedImage.id}.png`
-                                        link.href = detectedImage.enhancedCanvas!.toDataURL()
-                                        link.click()
-                                      }}
-                                    >
-                                      <Download className="h-3 w-3 mr-1" />
-                                      Download Enhanced
-                                    </Button>
-                                  </div>
-                                )}
                               </div>
                             </Card>
                           ))}
@@ -1802,8 +1907,8 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                         <div className="h-[320px] flex items-center justify-center text-muted-foreground">
                           <div className="text-center">
                             <Crop className="h-12 w-12 mx-auto mb-2" />
-                            <p>No images detected</p>
-                            <p className="text-xs mt-1">Non-text images will be automatically detected and cropped</p>
+                            <div>No images detected</div>
+                            <div className="text-xs mt-1">Non-text images will be automatically detected and cropped</div>
                           </div>
                         </div>
                       )}
@@ -1835,14 +1940,16 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                         >
                           <div className="flex items-center justify-between">
                             <div>
-                              <div className="text-sm font-medium flex items-center gap-2">
+                              <div className="flex items-center gap-2">
                                 {extraction.fileType === "pdf" ? (
                                   <FileText className="h-3 w-3" />
                                 ) : (
                                   <ImageIcon className="h-3 w-3" />
                                 )}
+                                <div className="font-medium text-sm">
                                 {extraction.fileName}
                                 {extraction.fileType === "pdf" && ` - Page ${extraction.pageNumber}`}
+                                </div>
                                 {extraction.isQACProcessed && (
                                   <Badge variant="secondary" className="ml-2">
                                     <CheckCheck className="h-2 w-2 mr-1" />
@@ -1856,9 +1963,6 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                                   </Badge>
                                 )}
                               </div>
-                              <p className="text-xs text-muted-foreground">
-                                {extraction.extractionMethod} • {extraction.confidence}% confidence
-                              </p>
                             </div>
                             {currentExtraction === extraction && <CheckCircle className="h-4 w-4 text-primary" />}
                           </div>
