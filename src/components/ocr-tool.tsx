@@ -19,6 +19,7 @@ import {
   Copy,
   ZoomIn,
   ZoomOut,
+  Calculator,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -91,7 +92,6 @@ export function OcrTool() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
   const [pageInput, setPageInput] = useState("1")
-  const [selectedLanguages] = useState<string[]>(["eng"])
   const [isProcessing, setIsProcessing] = useState<boolean>(false)
   const [isLoadingFile, setIsLoadingFile] = useState(false)
   const [isLoadingOCR, setIsLoadingOCR] = useState(false)
@@ -191,6 +191,7 @@ export function OcrTool() {
       }
     }
   };
+
 
   // Load PDF file
   const loadPDF = async (file: File) => {
@@ -327,7 +328,7 @@ export function OcrTool() {
     }
   }
   
-  const redrawCanvasWithSelection = useCallback(() => {
+    const redrawCanvasWithSelection = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx || !originalCanvasData) return;
@@ -502,44 +503,6 @@ export function OcrTool() {
     } else if (fileType === "image" && selectedFile) {
       await loadImage(selectedFile)
     }
-  }
-
-  // Extract math equations from text
-  const extractMathEquations = (text: string): string[] => {
-    const mathPatterns = [
-      // Mathematical symbols
-      /[∫∑∏∂∇√π∞±×÷≤≥≠≈∈∉⊂⊃∪∩]/g,
-      // Fractions
-      /\b\d+\/\d+\b/g,
-      // Scientific notation
-      /\d+\.?\d*[eE][+-]?\d+/g,
-      // Common equations
-      /E\s*=\s*mc²?/gi,
-      // Integrals
-      /∫.*?d[xyz]/g,
-      // Summations
-      /∑.*?=/g,
-      // Limits
-      /lim.*?→.*?/g,
-      // Greek letters in equations
-      /[αβγδεζηθικλμνξοπρστυφχψω]/g,
-      // Mathematical expressions with parentheses
-      /$$[^)]*[+\-*/=][^)]*$$/g,
-      // Derivatives
-      /d[xyz]\/d[xyz]/g,
-      // Powers and exponents
-      /\b\w+\^[0-9]+/g,
-    ]
-
-    const equations: string[] = []
-    mathPatterns.forEach((pattern) => {
-      const matches = text.match(pattern)
-      if (matches) {
-        equations.push(...matches)
-      }
-    })
-
-    return [...new Set(equations)] // Remove duplicates
   }
 
   // Convert canvas to base64 for API calls
@@ -793,7 +756,6 @@ COORDINATES:
           body: JSON.stringify({
               imageBase64: imageBase64,
               fileType: fileType,
-              selectedLanguages: selectedLanguages
           }),
         })
 
@@ -866,7 +828,7 @@ COORDINATES:
     }
 
     // Extract math section
-    const mathMatch = aiResponse.match(/MATH:\s*([\s\S]*?)(?=CONFIDENCE:|$)/i)
+    const mathMatch = aiResponse.match(/MATH:\s*([\sS]*?)(?=CONFIDENCE:|$)/i)
     if (mathMatch) {
       const mathContent = mathMatch[1].trim()
       if (mathContent && mathContent !== "None" && mathContent !== "No mathematical equations found") {
@@ -883,12 +845,8 @@ COORDINATES:
     // Fallback: if parsing fails, use the entire response as text
     if (!extractedText && aiResponse) {
       extractedText = aiResponse
-      mathEquations = extractMathEquations(aiResponse)
+      mathEquations = []
     }
-
-    // Additional math equation detection from extracted text
-    const additionalMath = extractMathEquations(extractedText)
-    mathEquations = [...new Set([...mathEquations, ...additionalMath])]
 
     return {
       text: extractedText || "No text could be extracted from the image.",
@@ -905,60 +863,30 @@ COORDINATES:
 
       for (let i = 0; i <= 20; i += 5) {
         setQacProgress(i)
-        setQacStatus("Analyzing text and mathematical expressions...")
+        setQacStatus("Analyzing text...")
         await new Promise((resolve) => setTimeout(resolve, 100))
       }
 
-      setQacStatus("Connecting to Gemini AI for comprehensive text and math correction...")
+      setQacStatus("Connecting to Gemini AI for comprehensive text correction...")
       setQacProgress(40)
 
       const originalImageBase64 = canvasRef.current ? canvasToBase64(canvasRef.current).split(",")[1] : null
 
-      const prompt = `You are an expert text and mathematical expression correction specialist. Analyze the following OCR-extracted text and perform comprehensive quality assurance:
+      const prompt = `You are an expert text correction specialist. Analyze the following OCR-extracted text and perform comprehensive quality assurance:
 
 **CRITICAL INSTRUCTIONS FOR TEXT CORRECTION:**
 1. Fix spelling mistakes, grammar errors, punctuation issues
 2. Correct word spacing problems and character recognition errors
-3. Fix formatting inconsistencies and language-specific errors (English/Bengali)
+3. Fix formatting inconsistencies and language-specific errors
 4. Maintain original meaning and structure - don't change correct text
 5. Preserve the same language (don't translate)
-
-**CRITICAL INSTRUCTIONS FOR MATHEMATICAL EXPRESSIONS:**
-6. Compare mathematical expressions with the original source image
-7. Format ALL mathematical expressions for MS Word/Google Docs compatibility
-8. Use proper Unicode symbols and formatting:
-   - Superscripts: Use Unicode superscript characters (x², x³, x⁴, x⁵, etc.)
-   - Subscripts: Use Unicode subscript characters (x₁, x₂, H₂O, etc.)
-   - Fractions: Use proper fraction notation (½, ¾, or a/b format)
-   - Integrals: Use ∫ symbol with proper bounds and dx notation
-   - Summations: Use ∑ symbol with proper bounds and indices
-   - Greek letters: Use proper Unicode (α, β, γ, δ, π, θ, λ, μ, σ, etc.)
-   - Mathematical operators: ×, ÷, ±, ≤, ≥, ≠, ≈, ∞, √, ∂, ∇
-   - Set notation: ∈, ∉, ⊂, ⊃, ∪, ∩, ∅
-   - Arrows: →, ←, ↔, ⇒, ⇔
-   - Special functions: sin, cos, tan, log, ln, exp, lim
-9. Ensure mathematical expressions are copy-paste ready for Word/Docs
-10. Maintain proper spacing around operators and symbols
-11. Use parentheses and brackets correctly: (), [], {}
-12. Format complex expressions with proper grouping
-
-**EXAMPLES OF PROPER MATHEMATICAL FORMATTING:**
-- Power: x² + y³ = z⁴
-- Subscript: H₂O, CO₂, x₁ + x₂
-- Fraction: ½x + ¾y or (a+b)/(c+d)
-- Integral: ∫₀¹ x² dx = ⅓
-- Summation: ∑ᵢ₌₁ⁿ xᵢ = n
-- Limit: lim(x→∞) f(x) = L
-- Square root: √(x² + y²)
-- Greek: π ≈ 3.14159, θ = 45°, Δx = x₂ - x₁
 
 Original Text to Correct:
 ${text}
 
 Please respond in this exact format:
-CORRECTED_TEXT: [the fully corrected text with properly formatted mathematical expressions]
-FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one per line, or "None" if no fixes needed]
-MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if no math expressions]`
+CORRECTED_TEXT: [the fully corrected text]
+FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one per line, or "None" if no fixes needed]`
 
       const apiResponse = await fetch("/api/ocr", {
         method: "POST",
@@ -1008,13 +936,13 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
     const fixes: QACFix[] = []
 
     // Extract corrected text
-    const textMatch = aiResponse.match(/CORRECTED_TEXT:\s*([\s\S]*?)(?=FIXES:|MATH_FORMATTING:|$)/i)
+    const textMatch = aiResponse.match(/CORRECTED_TEXT:\s*([\s\S]*?)(?=FIXES:|$)/i)
     if (textMatch) {
       correctedText = textMatch[1].trim()
     }
 
     // Extract fixes
-    const fixesMatch = aiResponse.match(/FIXES:\s*([\s\S]*?)(?=MATH_FORMATTING:|$)/i)
+    const fixesMatch = aiResponse.match(/FIXES:\s*([\s\S]*?)$/i)
     if (fixesMatch) {
       const fixesContent = fixesMatch[1].trim()
       if (fixesContent && fixesContent !== "None") {
@@ -1029,24 +957,6 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
               description: parts[3].trim(),
             })
           }
-        })
-      }
-    }
-
-    // Extract mathematical formatting improvements
-    const mathFormattingMatch = aiResponse.match(/MATH_FORMATTING:\s*([\s\S]*?)$/i)
-    if (mathFormattingMatch) {
-      const mathContent = mathFormattingMatch[1].trim()
-      if (mathContent && mathContent !== "None") {
-        // Add mathematical formatting improvements as fixes
-        const mathLines = mathContent.split("\n").filter((line) => line.trim().length > 0)
-        mathLines.forEach((line) => {
-          fixes.push({
-            original: "Mathematical Expression",
-            corrected: line.trim(),
-            type: "Math Formatting",
-            description: `Mathematical expression formatted for MS Word/Google Docs compatibility`,
-          })
         })
       }
     }
@@ -1137,7 +1047,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
           ? currentExtraction.qacText
           : currentExtraction.text
 
-      const fullContent = `${currentExtraction.fileName} - ${fileType === "pdf" ? `Page ${currentExtraction.pageNumber}` : "Image"}\nMethod: ${currentExtraction.extractionMethod}\nConfidence: ${currentExtraction.confidence}%\n${currentExtraction.isQACProcessed ? "Advanced QAC Processed: Yes\n" : ""}\nExtracted Text:\n${textToCopy}\n\nMath Equations:\n${currentExtraction.mathEquations.join("\n")}`
+      const fullContent = `${currentExtraction.fileName} - ${fileType === "pdf" ? `Page ${currentExtraction.pageNumber}` : "Image"}\nMethod: ${currentExtraction.extractionMethod}\nConfidence: ${currentExtraction.confidence}%\n${currentExtraction.isQACProcessed ? "Advanced QAC Processed: Yes\n" : ""}\nExtracted Text:\n${textToCopy}`
       navigator.clipboard.writeText(fullContent)
     }
   }
@@ -1153,7 +1063,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
           ? currentExtraction.qacText
           : currentExtraction.text
 
-      const content = `${currentExtraction.fileName} - ${fileType === "pdf" ? `Page ${currentExtraction.pageNumber}` : "Image"}\nMethod: ${currentExtraction.extractionMethod}\nConfidence: ${currentExtraction.confidence}%\n${currentExtraction.isQACProcessed ? "Advanced QAC Processed: Yes\n" : ""}\nExtracted Text:\n${textToExport}\n\nMath Equations:\n${currentExtraction.mathEquations.join("\n")}`
+      const content = `${currentExtraction.fileName} - ${fileType === "pdf" ? `Page ${currentExtraction.pageNumber}` : "Image"}\nMethod: ${currentExtraction.extractionMethod}\nConfidence: ${currentExtraction.confidence}%\n${currentExtraction.isQACProcessed ? "Advanced QAC Processed: Yes\n" : ""}\nExtracted Text:\n${textToExport}`
       const blob = new Blob([content], { type: "text/plain" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -1185,7 +1095,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
             <div className="flex-1 text-center">
               <h1 className="text-3xl font-bold tracking-tight">Advanced OCR Tool</h1>
               <p className="text-muted-foreground">
-                Extract text from PDFs and images with AI-powered processing
+                Extract text from PDFs and images
               </p>
             </div>
             <div className="flex-1 flex justify-end">
@@ -1552,7 +1462,7 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
               </CardHeader>
               <CardContent>
                 <Tabs defaultValue="text" className="w-full">
-                  <TabsList className="grid w-full grid-cols-3">
+                  <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3">
                     <TabsTrigger value="text" className="text-xs">Extracted Text</TabsTrigger>
                     <TabsTrigger value="qac" className="text-xs">QAC Fixes</TabsTrigger>
                     <TabsTrigger value="images" className="text-xs">Images ({currentExtraction?.detectedImages?.length || 0})</TabsTrigger>
@@ -1579,3 +1489,346 @@ MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if n
                                 ) : (
                                   <>
                                     <Wand2 className="h-4 w-4 mr-2" />
+                                    Advanced QAC Text
+                                  </>
+                                )}
+                              </Button>
+                              {currentExtraction.isQACProcessed && (
+                                <Badge variant="secondary">
+                                  <CheckCheck className="h-3 w-3 mr-1" />
+                                  Advanced QAC Processed
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+
+                          {/* QAC Progress */}
+                          {isQACProcessing && (
+                            <div className="space-y-2 mb-3">
+                              <div className="flex justify-between text-sm">
+                                <span>Advanced QAC Progress</span>
+                                <span>{qacProgress}%</span>
+                              </div>
+                              <Progress value={qacProgress} className="w-full" />
+                              <div className="text-xs text-muted-foreground text-center">{qacStatus}</div>
+                            </div>
+                          )}
+
+                          <Textarea
+                            value={
+                              currentExtraction.isQACProcessed && currentExtraction.qacText
+                                ? currentExtraction.qacText
+                                : currentExtraction.text
+                            }
+                            onChange={(e) => {
+                              if (currentExtraction.isQACProcessed) {
+                                setCurrentExtraction({ ...currentExtraction, qacText: e.target.value })
+                              } else {
+                                setCurrentExtraction({ ...currentExtraction, text: e.target.value })
+                              }
+                            }}
+                            className="min-h-[280px] resize-none font-mono"
+                            placeholder="AI-extracted text will appear here after processing..."
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-[320px] flex items-center justify-center text-muted-foreground">
+                          <div className="text-center">
+                            <FileText className="h-12 w-12 mx-auto mb-2" />
+                            <div>No text extracted yet</div>
+                            <div className="text-xs mt-1">Upload a PDF or image and extract text using AI</div>
+                          </div>
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </TabsContent>
+
+                  <TabsContent value="qac" className="mt-4">
+                    <ScrollArea className="h-[350px]">
+                      {currentExtraction && currentExtraction.isQACProcessed && currentExtraction.qacFixes ? (
+                        currentExtraction.qacFixes.length > 0 ? (
+                          <div className="space-y-3">
+                            <div className="text-sm font-medium mb-2">
+                              {currentExtraction.qacFixes.length} improvements applied:
+                            </div>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Original</TableHead>
+                                  <TableHead>Corrected</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {currentExtraction.qacFixes.map((fix, index) => (
+                                  <TableRow key={index}>
+                                    <TableCell className="font-mono text-sm bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200">{fix.original}</TableCell>
+                                    <TableCell className="font-mono text-sm bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-200">{fix.corrected}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ) : (
+                          <div className="h-[320px] flex items-center justify-center text-muted-foreground">
+                            <div className="text-center">
+                              <CheckCheck className="h-12 w-12 mx-auto mb-2" />
+                              <div>No fixes needed</div>
+                              <div className="text-xs mt-1">The extracted text appears to be error-free</div>
+                            </div>
+                          </div>
+                        )
+                      ) : (
+                        <div className="h-[320px] flex items-center justify-center text-muted-foreground">
+                          <div className="text-center">
+                            <Wand2 className="h-12 w-12 mx-auto mb-2" />
+                            <div>Advanced QAC not performed yet</div>
+                            <div className="text-xs mt-1">
+                              Click "Advanced QAC Text" to enhance text quality
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </TabsContent>
+
+                  <TabsContent value="images" className="mt-4">
+                    <ScrollArea className="h-[350px]">
+                      {currentExtraction &&
+                      currentExtraction.detectedImages &&
+                      currentExtraction.detectedImages.length > 0 ? (
+                        <div className="space-y-4">
+                          {currentExtraction.detectedImages.map((detectedImage) => (
+                            <Card key={detectedImage.id} className="p-4">
+                              <div className="space-y-3">
+                                {/* Image Canvas */}
+                                <div className="flex justify-center">
+                                  <canvas
+                                    ref={(canvas) => {
+                                      if (canvas) {
+                                        const ctx = canvas.getContext("2d")
+                                        if (ctx) {
+                                          canvas.width = detectedImage.canvas.width
+                                          canvas.height = detectedImage.canvas.height
+                                          ctx.drawImage(detectedImage.canvas, 0, 0)
+                                        }
+                                      }
+                                    }}
+                                    className="border rounded-lg shadow-sm max-w-full h-auto"
+                                    style={{ maxHeight: "150px" }}
+                                  />
+                                </div>
+                                
+                                {detectedImage.enhancedImageUrl && (
+                                  <div className="flex justify-center">
+                                     <img
+                                      src={detectedImage.enhancedImageUrl}
+                                      alt="Enhanced"
+                                      className="border rounded-lg shadow-sm max-w-full h-auto"
+                                      style={{ maxHeight: "150px" }}
+                                    />
+                                  </div>
+                                )}
+
+
+                                {/* Image Info */}
+                                <div className="text-xs text-muted-foreground text-center">
+                                  Size: {detectedImage.width} × {detectedImage.height}px
+                                  {detectedImage.enhancedImageUrl && " • Enhanced"}
+                                  {detectedImage.description && ` • ${detectedImage.description}`}
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="flex flex-col gap-2 justify-center">
+                                   <div className="flex items-center space-x-2">
+                                    <Switch 
+                                      id={`colorize-switch-${detectedImage.id}`} 
+                                      checked={!!detectedImage.colorize} 
+                                      onCheckedChange={(checked) => handleColorizeToggle(detectedImage.id, checked)}
+                                    />
+                                    <Label htmlFor={`colorize-switch-${detectedImage.id}`} className="flex items-center gap-2 text-sm">
+                                      <Paintbrush className="h-4 w-4" />
+                                      Colorize Image
+                                    </Label>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleImageAction(detectedImage, "enhance")}
+                                      disabled={detectedImage.isProcessing || isImageProcessing}
+                                    >
+                                      {detectedImage.isProcessing ? (
+                                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                      ) : (
+                                        <Palette className="h-3 w-3 mr-1" />
+                                      )}
+                                      {detectedImage.colorize ? 'Colorize & Enhance' : 'Enhance'}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleImageAction(detectedImage, "base64")}
+                                      disabled={detectedImage.isProcessing || isImageProcessing}
+                                    >
+                                      {detectedImage.isProcessing ? (
+                                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                      ) : (
+                                        <Code className="h-3 w-3 mr-1" />
+                                      )}
+                                      Base64
+                                    </Button>
+                                    {detectedImage.enhancedImageUrl && (
+                                       <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                          const link = document.createElement("a");
+                                          link.download = `enhanced-image-${detectedImage.id}.png`;
+                                          link.href = detectedImage.enhancedImageUrl!;
+                                          link.click();
+                                        }}
+                                      >
+                                        <Download className="h-3 w-3 mr-1" />
+                                        Download
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Results Display */}
+                                {detectedImage.base64 && (
+                                  <div className="mt-3">
+                                    <Label className="text-xs font-medium">Base64 Code:</Label>
+                                    <div className="mt-1 p-2 bg-muted rounded text-xs font-mono break-all max-h-20 overflow-y-auto">
+                                      {detectedImage.base64.substring(0, 200)}...
+                                    </div>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="mt-1"
+                                      onClick={() => copyToClipboard(detectedImage.base64!)}
+                                    >
+                                      <Copy className="h-3 w-3 mr-1" />
+                                      Copy Full Base64
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            </Card>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="h-[320px] flex items-center justify-center text-muted-foreground">
+                          <div className="text-center">
+                            <Crop className="h-12 w-12 mx-auto mb-2" />
+                            <div>No images detected</div>
+                            <div className="text-xs mt-1">Non-text images will be automatically detected and cropped</div>
+                          </div>
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+
+            {/* Extraction History */}
+            {extractedContent.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Extraction History</CardTitle>
+                  <CardDescription>{extractedContent.length} AI text extractions</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ScrollArea className="h-[200px]">
+                    <div className="space-y-2">
+                      {extractedContent.map((extraction, index) => (
+                        <div
+                          key={index}
+                          className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                            currentExtraction === extraction
+                              ? "bg-primary/10 border-primary"
+                              : "bg-muted hover:bg-muted/80"
+                          }`}
+                          onClick={() => setCurrentExtraction(extraction)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                {extraction.fileType === "pdf" ? (
+                                  <FileText className="h-3 w-3" />
+                                ) : (
+                                  <ImageIcon className="h-3 w-3" />
+                                )}
+                                <div className="font-medium text-sm">
+                                {extraction.fileName}
+                                {extraction.fileType === "pdf" && ` - Page ${extraction.pageNumber}`}
+                                </div>
+                                {extraction.isQACProcessed && (
+                                  <Badge variant="secondary" className="ml-2">
+                                    <CheckCheck className="h-2 w-2 mr-1" />
+                                    Advanced QAC
+                                  </Badge>
+                                )}
+                                {extraction.detectedImages && extraction.detectedImages.length > 0 && (
+                                  <Badge variant="outline" className="ml-2">
+                                    <Crop className="h-2 w-2 mr-1" />
+                                    {extraction.detectedImages.length} IMG
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                            {currentExtraction === extraction && <CheckCircle className="h-4 w-4 text-primary" />}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Statistics */}
+            {currentExtraction && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Extraction Statistics</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Characters</p>
+                      <p className="font-medium">
+                        {(currentExtraction.isQACProcessed && currentExtraction.qacText
+                          ? currentExtraction.qacText
+                          : currentExtraction.text
+                        ).length}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Words</p>
+                      <p className="font-medium">
+                        {
+                          (currentExtraction.isQACProcessed && currentExtraction.qacText
+                            ? currentExtraction.qacText
+                            : currentExtraction.text
+                          )
+                            .split(/\s+/)
+                            .filter((w) => w.length > 0).length
+                        }
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Detected Images</p>
+                      <p className="font-medium">{currentExtraction.detectedImages?.length || 0}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
