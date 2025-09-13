@@ -19,6 +19,7 @@ import {
   Copy,
   ZoomIn,
   ZoomOut,
+  Languages,
   Calculator,
   ChevronLeft,
   ChevronRight,
@@ -505,6 +506,44 @@ export function OcrTool() {
     }
   }
 
+  // Extract math equations from text
+  const extractMathEquations = (text: string): string[] => {
+    const mathPatterns = [
+      // Mathematical symbols
+      /[∫∑∏∂∇√π∞±×÷≤≥≠≈∈∉⊂⊃∪∩]/g,
+      // Fractions
+      /\b\d+\/\d+\b/g,
+      // Scientific notation
+      /\d+\.?\d*[eE][+-]?\d+/g,
+      // Common equations
+      /E\s*=\s*mc²?/gi,
+      // Integrals
+      /∫.*?d[xyz]/g,
+      // Summations
+      /∑.*?=/g,
+      // Limits
+      /lim.*?→.*?/g,
+      // Greek letters in equations
+      /[αβγδεζηθικλμνξοπρστυφχψω]/g,
+      // Mathematical expressions with parentheses
+      /$$[^)]*[+\-*/=][^)]*$$/g,
+      // Derivatives
+      /d[xyz]\/d[xyz]/g,
+      // Powers and exponents
+      /\b\w+\^[0-9]+/g,
+    ]
+
+    const equations: string[] = []
+    mathPatterns.forEach((pattern) => {
+      const matches = text.match(pattern)
+      if (matches) {
+        equations.push(...matches)
+      }
+    })
+
+    return [...new Set(equations)] // Remove duplicates
+  }
+
   // Convert canvas to base64 for API calls
   const canvasToBase64 = (canvas: HTMLCanvasElement): string => {
     return canvas.toDataURL("image/png", 1.0)
@@ -756,6 +795,7 @@ COORDINATES:
           body: JSON.stringify({
               imageBase64: imageBase64,
               fileType: fileType,
+              selectedLanguages: ["eng", "ben"]
           }),
         })
 
@@ -828,7 +868,7 @@ COORDINATES:
     }
 
     // Extract math section
-    const mathMatch = aiResponse.match(/MATH:\s*([\sS]*?)(?=CONFIDENCE:|$)/i)
+    const mathMatch = aiResponse.match(/MATH:\s*([\s\S]*?)(?=CONFIDENCE:|$)/i)
     if (mathMatch) {
       const mathContent = mathMatch[1].trim()
       if (mathContent && mathContent !== "None" && mathContent !== "No mathematical equations found") {
@@ -845,8 +885,12 @@ COORDINATES:
     // Fallback: if parsing fails, use the entire response as text
     if (!extractedText && aiResponse) {
       extractedText = aiResponse
-      mathEquations = []
+      mathEquations = extractMathEquations(aiResponse)
     }
+
+    // Additional math equation detection from extracted text
+    const additionalMath = extractMathEquations(extractedText)
+    mathEquations = [...new Set([...mathEquations, ...additionalMath])]
 
     return {
       text: extractedText || "No text could be extracted from the image.",
@@ -863,30 +907,60 @@ COORDINATES:
 
       for (let i = 0; i <= 20; i += 5) {
         setQacProgress(i)
-        setQacStatus("Analyzing text...")
+        setQacStatus("Analyzing text and mathematical expressions...")
         await new Promise((resolve) => setTimeout(resolve, 100))
       }
 
-      setQacStatus("Connecting to Gemini AI for comprehensive text correction...")
+      setQacStatus("Connecting to Gemini AI for comprehensive text and math correction...")
       setQacProgress(40)
 
       const originalImageBase64 = canvasRef.current ? canvasToBase64(canvasRef.current).split(",")[1] : null
 
-      const prompt = `You are an expert text correction specialist. Analyze the following OCR-extracted text and perform comprehensive quality assurance:
+      const prompt = `You are an expert text and mathematical expression correction specialist. Analyze the following OCR-extracted text and perform comprehensive quality assurance:
 
 **CRITICAL INSTRUCTIONS FOR TEXT CORRECTION:**
 1. Fix spelling mistakes, grammar errors, punctuation issues
 2. Correct word spacing problems and character recognition errors
-3. Fix formatting inconsistencies and language-specific errors
+3. Fix formatting inconsistencies and language-specific errors (English/Bengali)
 4. Maintain original meaning and structure - don't change correct text
 5. Preserve the same language (don't translate)
+
+**CRITICAL INSTRUCTIONS FOR MATHEMATICAL EXPRESSIONS:**
+6. Compare mathematical expressions with the original source image
+7. Format ALL mathematical expressions for MS Word/Google Docs compatibility
+8. Use proper Unicode symbols and formatting:
+   - Superscripts: Use Unicode superscript characters (x², x³, x⁴, x⁵, etc.)
+   - Subscripts: Use Unicode subscript characters (x₁, x₂, H₂O, etc.)
+   - Fractions: Use proper fraction notation (½, ¾, or a/b format)
+   - Integrals: Use ∫ symbol with proper bounds and dx notation
+   - Summations: Use ∑ symbol with proper bounds and indices
+   - Greek letters: Use proper Unicode (α, β, γ, δ, π, θ, λ, μ, σ, etc.)
+   - Mathematical operators: ×, ÷, ±, ≤, ≥, ≠, ≈, ∞, √, ∂, ∇
+   - Set notation: ∈, ∉, ⊂, ⊃, ∪, ∩, ∅
+   - Arrows: →, ←, ↔, ⇒, ⇔
+   - Special functions: sin, cos, tan, log, ln, exp, lim
+9. Ensure mathematical expressions are copy-paste ready for Word/Docs
+10. Maintain proper spacing around operators and symbols
+11. Use parentheses and brackets correctly: (), [], {}
+12. Format complex expressions with proper grouping
+
+**EXAMPLES OF PROPER MATHEMATICAL FORMATTING:**
+- Power: x² + y³ = z⁴
+- Subscript: H₂O, CO₂, x₁ + x₂
+- Fraction: ½x + ¾y or (a+b)/(c+d)
+- Integral: ∫₀¹ x² dx = ⅓
+- Summation: ∑ᵢ₌₁ⁿ xᵢ = n
+- Limit: lim(x→∞) f(x) = L
+- Square root: √(x² + y²)
+- Greek: π ≈ 3.14159, θ = 45°, Δx = x₂ - x₁
 
 Original Text to Correct:
 ${text}
 
 Please respond in this exact format:
-CORRECTED_TEXT: [the fully corrected text]
-FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one per line, or "None" if no fixes needed]`
+CORRECTED_TEXT: [the fully corrected text with properly formatted mathematical expressions]
+FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one per line, or "None" if no fixes needed]
+MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if no math expressions]`
 
       const apiResponse = await fetch("/api/ocr", {
         method: "POST",
@@ -936,13 +1010,13 @@ FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one
     const fixes: QACFix[] = []
 
     // Extract corrected text
-    const textMatch = aiResponse.match(/CORRECTED_TEXT:\s*([\s\S]*?)(?=FIXES:|$)/i)
+    const textMatch = aiResponse.match(/CORRECTED_TEXT:\s*([\s\S]*?)(?=FIXES:|MATH_FORMATTING:|$)/i)
     if (textMatch) {
       correctedText = textMatch[1].trim()
     }
 
     // Extract fixes
-    const fixesMatch = aiResponse.match(/FIXES:\s*([\s\S]*?)$/i)
+    const fixesMatch = aiResponse.match(/FIXES:\s*([\s\S]*?)(?=MATH_FORMATTING:|$)/i)
     if (fixesMatch) {
       const fixesContent = fixesMatch[1].trim()
       if (fixesContent && fixesContent !== "None") {
@@ -957,6 +1031,24 @@ FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one
               description: parts[3].trim(),
             })
           }
+        })
+      }
+    }
+
+    // Extract mathematical formatting improvements
+    const mathFormattingMatch = aiResponse.match(/MATH_FORMATTING:\s*([\s\S]*?)$/i)
+    if (mathFormattingMatch) {
+      const mathContent = mathFormattingMatch[1].trim()
+      if (mathContent && mathContent !== "None") {
+        // Add mathematical formatting improvements as fixes
+        const mathLines = mathContent.split("\n").filter((line) => line.trim().length > 0)
+        mathLines.forEach((line, index) => {
+          fixes.push({
+            original: "Mathematical Expression",
+            corrected: line.trim(),
+            type: "Math Formatting",
+            description: `Mathematical expression formatted for MS Word/Google Docs compatibility`,
+          })
         })
       }
     }
@@ -1047,7 +1139,7 @@ FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one
           ? currentExtraction.qacText
           : currentExtraction.text
 
-      const fullContent = `${currentExtraction.fileName} - ${fileType === "pdf" ? `Page ${currentExtraction.pageNumber}` : "Image"}\nMethod: ${currentExtraction.extractionMethod}\nConfidence: ${currentExtraction.confidence}%\n${currentExtraction.isQACProcessed ? "Advanced QAC Processed: Yes\n" : ""}\nExtracted Text:\n${textToCopy}`
+      const fullContent = `${currentExtraction.fileName} - ${fileType === "pdf" ? `Page ${currentExtraction.pageNumber}` : "Image"}\nMethod: ${currentExtraction.extractionMethod}\nConfidence: ${currentExtraction.confidence}%\n${currentExtraction.isQACProcessed ? "Advanced QAC Processed: Yes\n" : ""}\nExtracted Text:\n${textToCopy}\n\nMath Equations:\n${currentExtraction.mathEquations.join("\n")}`
       navigator.clipboard.writeText(fullContent)
     }
   }
@@ -1063,7 +1155,7 @@ FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one
           ? currentExtraction.qacText
           : currentExtraction.text
 
-      const content = `${currentExtraction.fileName} - ${fileType === "pdf" ? `Page ${currentExtraction.pageNumber}` : "Image"}\nMethod: ${currentExtraction.extractionMethod}\nConfidence: ${currentExtraction.confidence}%\n${currentExtraction.isQACProcessed ? "Advanced QAC Processed: Yes\n" : ""}\nExtracted Text:\n${textToExport}`
+      const content = `${currentExtraction.fileName} - ${fileType === "pdf" ? `Page ${currentExtraction.pageNumber}` : "Image"}\nMethod: ${currentExtraction.extractionMethod}\nConfidence: ${currentExtraction.confidence}%\n${currentExtraction.isQACProcessed ? "Advanced QAC Processed: Yes\n" : ""}\nExtracted Text:\n${textToExport}\n\nMath Equations:\n${currentExtraction.mathEquations.join("\n")}`
       const blob = new Blob([content], { type: "text/plain" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -1095,7 +1187,7 @@ FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one
             <div className="flex-1 text-center">
               <h1 className="text-3xl font-bold tracking-tight">Advanced OCR Tool</h1>
               <p className="text-muted-foreground">
-                Extract text from PDFs and images
+                Extract text from PDFs and images with AI
               </p>
             </div>
             <div className="flex-1 flex justify-end">
@@ -1462,7 +1554,7 @@ FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one
               </CardHeader>
               <CardContent>
                 <Tabs defaultValue="text" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3">
+                  <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="text" className="text-xs">Extracted Text</TabsTrigger>
                     <TabsTrigger value="qac" className="text-xs">QAC Fixes</TabsTrigger>
                     <TabsTrigger value="images" className="text-xs">Images ({currentExtraction?.detectedImages?.length || 0})</TabsTrigger>
@@ -1489,7 +1581,7 @@ FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one
                                 ) : (
                                   <>
                                     <Wand2 className="h-4 w-4 mr-2" />
-                                    Advanced QAC Text
+                                    Advanced QAC Text & Math
                                   </>
                                 )}
                               </Button>
@@ -1528,8 +1620,22 @@ FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one
                               }
                             }}
                             className="min-h-[280px] resize-none font-mono"
-                            placeholder="AI-extracted text will appear here after processing..."
+                            placeholder="AI-extracted text with mathematical expressions will appear here after processing..."
                           />
+
+                          {/* Mathematical Formatting Info */}
+                          {currentExtraction.isQACProcessed && (
+                            <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                              <div className="text-xs text-blue-700">
+                                ✨{" "}
+                                <strong>
+                                  Mathematical expressions have been formatted for MS Word/Google Docs compatibility
+                                </strong>
+                                <br />• Superscripts: x², x³, x⁴ • Subscripts: H₂O, x₁, x₂ • Greek letters: π, α, β, θ
+                                <br />• Symbols: ∫, ∑, √, ±, ≤, ≥, ∞ • Ready to copy-paste into documents!
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="h-[320px] flex items-center justify-center text-muted-foreground">
@@ -1544,50 +1650,52 @@ FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one
                   </TabsContent>
 
                   <TabsContent value="qac" className="mt-4">
-                    <ScrollArea className="h-[350px]">
-                      {currentExtraction && currentExtraction.isQACProcessed && currentExtraction.qacFixes ? (
-                        currentExtraction.qacFixes.length > 0 ? (
-                          <div className="space-y-3">
-                            <div className="text-sm font-medium mb-2">
-                              {currentExtraction.qacFixes.length} improvements applied:
-                            </div>
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Original</TableHead>
-                                  <TableHead>Corrected</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {currentExtraction.qacFixes.map((fix, index) => (
-                                  <TableRow key={index}>
-                                    <TableCell className="font-mono text-sm bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200">{fix.original}</TableCell>
-                                    <TableCell className="font-mono text-sm bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-200">{fix.corrected}</TableCell>
+                    <ScrollArea className="h-[350px] w-full">
+                      <div className="overflow-x-auto">
+                        {currentExtraction && currentExtraction.isQACProcessed && currentExtraction.qacFixes ? (
+                          currentExtraction.qacFixes.length > 0 ? (
+                            <div className="space-y-3">
+                              <div className="text-sm font-medium mb-2">
+                                {currentExtraction.qacFixes.length} improvements applied:
+                              </div>
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Original</TableHead>
+                                    <TableHead>Corrected</TableHead>
                                   </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </div>
+                                </TableHeader>
+                                <TableBody>
+                                  {currentExtraction.qacFixes.map((fix, index) => (
+                                    <TableRow key={index}>
+                                      <TableCell className="font-mono text-sm text-foreground">{fix.original}</TableCell>
+                                      <TableCell className="font-mono text-sm text-foreground">{fix.corrected}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          ) : (
+                            <div className="h-[320px] flex items-center justify-center text-muted-foreground">
+                              <div className="text-center">
+                                <CheckCheck className="h-12 w-12 mx-auto mb-2" />
+                                <div>No fixes needed</div>
+                                <div className="text-xs mt-1">The extracted text appears to be error-free</div>
+                              </div>
+                            </div>
+                          )
                         ) : (
                           <div className="h-[320px] flex items-center justify-center text-muted-foreground">
                             <div className="text-center">
-                              <CheckCheck className="h-12 w-12 mx-auto mb-2" />
-                              <div>No fixes needed</div>
-                              <div className="text-xs mt-1">The extracted text appears to be error-free</div>
+                              <Wand2 className="h-12 w-12 mx-auto mb-2" />
+                              <div>Advanced QAC not performed yet</div>
+                              <div className="text-xs mt-1">
+                                Click "Advanced QAC Text & Math" to enhance text and mathematical formatting
+                              </div>
                             </div>
                           </div>
-                        )
-                      ) : (
-                        <div className="h-[320px] flex items-center justify-center text-muted-foreground">
-                          <div className="text-center">
-                            <Wand2 className="h-12 w-12 mx-auto mb-2" />
-                            <div>Advanced QAC not performed yet</div>
-                            <div className="text-xs mt-1">
-                              Click "Advanced QAC Text" to enhance text quality
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </ScrollArea>
                   </TabsContent>
 
@@ -1817,6 +1925,10 @@ FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one
                             .filter((w) => w.length > 0).length
                         }
                       </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Math Equations</p>
+                      <p className="font-medium">{currentExtraction.mathEquations.length}</p>
                     </div>
                     <div>
                       <p className="text-muted-foreground">Detected Images</p>
