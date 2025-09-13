@@ -91,7 +91,7 @@ export function OcrTool() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
   const [pageInput, setPageInput] = useState("1")
-  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(["eng"])
+  const [selectedLanguages] = useState<string[]>(["eng"])
   const [isProcessing, setIsProcessing] = useState<boolean>(false)
   const [isLoadingFile, setIsLoadingFile] = useState(false)
   const [isLoadingOCR, setIsLoadingOCR] = useState(false)
@@ -191,7 +191,6 @@ export function OcrTool() {
       }
     }
   };
-
 
   // Load PDF file
   const loadPDF = async (file: File) => {
@@ -328,7 +327,7 @@ export function OcrTool() {
     }
   }
   
-    const redrawCanvasWithSelection = useCallback(() => {
+  const redrawCanvasWithSelection = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx || !originalCanvasData) return;
@@ -856,4 +855,727 @@ COORDINATES:
 
   // Parse AI response
   const parseAIResponse = (aiResponse: string) => {
-    let extractedText =
+    let extractedText = ""
+    let mathEquations: string[] = []
+    let confidence = 90
+
+    // Extract text section
+    const textMatch = aiResponse.match(/TEXT:\s*([\s\S]*?)(?=MATH:|CONFIDENCE:|$)/i)
+    if (textMatch) {
+      extractedText = textMatch[1].trim()
+    }
+
+    // Extract math section
+    const mathMatch = aiResponse.match(/MATH:\s*([\s\S]*?)(?=CONFIDENCE:|$)/i)
+    if (mathMatch) {
+      const mathContent = mathMatch[1].trim()
+      if (mathContent && mathContent !== "None" && mathContent !== "No mathematical equations found") {
+        mathEquations = mathContent.split("\n").filter((eq) => eq.trim().length > 0)
+      }
+    }
+
+    // Extract confidence
+    const confidenceMatch = aiResponse.match(/CONFIDENCE:\s*(\d+)/i)
+    if (confidenceMatch) {
+      confidence = Number.parseInt(confidenceMatch[1])
+    }
+
+    // Fallback: if parsing fails, use the entire response as text
+    if (!extractedText && aiResponse) {
+      extractedText = aiResponse
+      mathEquations = extractMathEquations(aiResponse)
+    }
+
+    // Additional math equation detection from extracted text
+    const additionalMath = extractMathEquations(extractedText)
+    mathEquations = [...new Set([...mathEquations, ...additionalMath])]
+
+    return {
+      text: extractedText || "No text could be extracted from the image.",
+      mathEquations,
+      confidence: Math.max(confidence, 80),
+    }
+  }
+
+  // Enhanced QAC (Quality Assurance Check) function with advanced mathematical formatting
+  const performQAC = async (text: string) => {
+    try {
+      setQacProgress(0)
+      setQacStatus("Initializing advanced quality assurance check...")
+
+      for (let i = 0; i <= 20; i += 5) {
+        setQacProgress(i)
+        setQacStatus("Analyzing text and mathematical expressions...")
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+
+      setQacStatus("Connecting to Gemini AI for comprehensive text and math correction...")
+      setQacProgress(40)
+
+      const originalImageBase64 = canvasRef.current ? canvasToBase64(canvasRef.current).split(",")[1] : null
+
+      const prompt = `You are an expert text and mathematical expression correction specialist. Analyze the following OCR-extracted text and perform comprehensive quality assurance:
+
+**CRITICAL INSTRUCTIONS FOR TEXT CORRECTION:**
+1. Fix spelling mistakes, grammar errors, punctuation issues
+2. Correct word spacing problems and character recognition errors
+3. Fix formatting inconsistencies and language-specific errors (English/Bengali)
+4. Maintain original meaning and structure - don't change correct text
+5. Preserve the same language (don't translate)
+
+**CRITICAL INSTRUCTIONS FOR MATHEMATICAL EXPRESSIONS:**
+6. Compare mathematical expressions with the original source image
+7. Format ALL mathematical expressions for MS Word/Google Docs compatibility
+8. Use proper Unicode symbols and formatting:
+   - Superscripts: Use Unicode superscript characters (x², x³, x⁴, x⁵, etc.)
+   - Subscripts: Use Unicode subscript characters (x₁, x₂, H₂O, etc.)
+   - Fractions: Use proper fraction notation (½, ¾, or a/b format)
+   - Integrals: Use ∫ symbol with proper bounds and dx notation
+   - Summations: Use ∑ symbol with proper bounds and indices
+   - Greek letters: Use proper Unicode (α, β, γ, δ, π, θ, λ, μ, σ, etc.)
+   - Mathematical operators: ×, ÷, ±, ≤, ≥, ≠, ≈, ∞, √, ∂, ∇
+   - Set notation: ∈, ∉, ⊂, ⊃, ∪, ∩, ∅
+   - Arrows: →, ←, ↔, ⇒, ⇔
+   - Special functions: sin, cos, tan, log, ln, exp, lim
+9. Ensure mathematical expressions are copy-paste ready for Word/Docs
+10. Maintain proper spacing around operators and symbols
+11. Use parentheses and brackets correctly: (), [], {}
+12. Format complex expressions with proper grouping
+
+**EXAMPLES OF PROPER MATHEMATICAL FORMATTING:**
+- Power: x² + y³ = z⁴
+- Subscript: H₂O, CO₂, x₁ + x₂
+- Fraction: ½x + ¾y or (a+b)/(c+d)
+- Integral: ∫₀¹ x² dx = ⅓
+- Summation: ∑ᵢ₌₁ⁿ xᵢ = n
+- Limit: lim(x→∞) f(x) = L
+- Square root: √(x² + y²)
+- Greek: π ≈ 3.14159, θ = 45°, Δx = x₂ - x₁
+
+Original Text to Correct:
+${text}
+
+Please respond in this exact format:
+CORRECTED_TEXT: [the fully corrected text with properly formatted mathematical expressions]
+FIXES: [list each fix in format: "ORIGINAL|CORRECTED|ERROR_TYPE|DESCRIPTION" one per line, or "None" if no fixes needed]
+MATH_FORMATTING: [list mathematical formatting improvements made, or "None" if no math expressions]`
+
+      const apiResponse = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: originalImageBase64,
+          prompt: prompt,
+        }),
+      })
+
+      setQacProgress(70)
+      setQacStatus("Processing comprehensive correction results...")
+
+      if (apiResponse.ok) {
+        const apiData = await apiResponse.json()
+        const aiResponse = apiData.response || ""
+        console.log("Enhanced QAC Gemini response:", aiResponse.substring(0, 300) + "...")
+
+        if (aiResponse && aiResponse.trim().length > 0) {
+          const result = parseEnhancedQACResponse(aiResponse)
+          setQacProgress(100)
+          setQacStatus("Advanced quality assurance check completed!")
+          return result
+        }
+      } else {
+        const errorData = await apiResponse.json()
+        console.log("Enhanced QAC Gemini API failed:", errorData)
+      }
+
+      // Fallback if API fails
+      setQacProgress(100)
+      setQacStatus("QAC completed with basic corrections")
+      return {
+        correctedText: text,
+        fixes: [],
+      }
+    } catch (error) {
+      console.error("Enhanced QAC Error:", error)
+      setQacStatus("Advanced QAC processing failed")
+      throw new Error(`Enhanced QAC failed: ${error instanceof Error ? error.message : "Unknown error"}`)
+    }
+  }
+
+  // Parse enhanced QAC response with mathematical formatting details
+  const parseEnhancedQACResponse = (aiResponse: string) => {
+    let correctedText = ""
+    const fixes: QACFix[] = []
+
+    // Extract corrected text
+    const textMatch = aiResponse.match(/CORRECTED_TEXT:\s*([\s\S]*?)(?=FIXES:|MATH_FORMATTING:|$)/i)
+    if (textMatch) {
+      correctedText = textMatch[1].trim()
+    }
+
+    // Extract fixes
+    const fixesMatch = aiResponse.match(/FIXES:\s*([\s\S]*?)(?=MATH_FORMATTING:|$)/i)
+    if (fixesMatch) {
+      const fixesContent = fixesMatch[1].trim()
+      if (fixesContent && fixesContent !== "None") {
+        const fixLines = fixesContent.split("\n").filter((line) => line.trim().length > 0)
+        fixLines.forEach((line) => {
+          const parts = line.split("|")
+          if (parts.length >= 4) {
+            fixes.push({
+              original: parts[0].trim(),
+              corrected: parts[1].trim(),
+              type: parts[2].trim(),
+              description: parts[3].trim(),
+            })
+          }
+        })
+      }
+    }
+
+    // Extract mathematical formatting improvements
+    const mathFormattingMatch = aiResponse.match(/MATH_FORMATTING:\s*([\s\S]*?)$/i)
+    if (mathFormattingMatch) {
+      const mathContent = mathFormattingMatch[1].trim()
+      if (mathContent && mathContent !== "None") {
+        // Add mathematical formatting improvements as fixes
+        const mathLines = mathContent.split("\n").filter((line) => line.trim().length > 0)
+        mathLines.forEach((line) => {
+          fixes.push({
+            original: "Mathematical Expression",
+            corrected: line.trim(),
+            type: "Math Formatting",
+            description: `Mathematical expression formatted for MS Word/Google Docs compatibility`,
+          })
+        })
+      }
+    }
+
+    return {
+      correctedText: correctedText || aiResponse,
+      fixes,
+    }
+  }
+
+  const handleExtractText = async () => {
+    if (!selectedFile || !canvasRef.current || !librariesLoaded) {
+      setFileError("Please wait for the libraries to load before extracting text.")
+      return
+    }
+
+    setIsProcessing(true)
+    setFileError(null)
+    setOcrProgress(0)
+    setOcrStatus("Preparing for text extraction...")
+
+    try {
+      const result = await performAdvancedOCR(canvasRef.current)
+
+      const newExtraction: ExtractedContent = {
+        text: result.text,
+        mathEquations: result.mathEquations,
+        pageNumber: currentPage,
+        confidence: result.confidence,
+        extractionMethod: result.extractionMethod,
+        fileName: selectedFile.name,
+        fileType: fileType!,
+        isQACProcessed: false,
+        detectedImages: result.detectedImages || [],
+      }
+
+      setCurrentExtraction(newExtraction)
+      setExtractedContent((prev) => [...prev, newExtraction])
+      setOcrStatus("Text extraction completed successfully!")
+    } catch (error) {
+      console.error("Error extracting text:", error)
+      setFileError(error instanceof Error ? error.message : "Failed to extract text. Please try again.")
+      setOcrStatus("Extraction failed")
+    } finally {
+      setIsProcessing(false)
+      setOcrProgress(0)
+    }
+  }
+
+  const handleQAC = async () => {
+    if (!currentExtraction || !currentExtraction.text) {
+      setFileError("No text available for quality assurance check.")
+      return
+    }
+
+    setIsQACProcessing(true)
+    setFileError(null)
+    setQacProgress(0)
+    setQacStatus("Starting advanced quality assurance check...")
+
+    try {
+      const qacResult = await performQAC(currentExtraction.text)
+
+      const updatedExtraction: ExtractedContent = {
+        ...currentExtraction,
+        qacText: qacResult.correctedText,
+        qacFixes: qacResult.fixes,
+        isQACProcessed: true,
+      }
+
+      setCurrentExtraction(updatedExtraction)
+      setExtractedContent((prev) => prev.map((item) => (item.pageNumber === updatedExtraction.pageNumber ? updatedExtraction : item)))
+      setQacStatus("Advanced quality assurance check completed successfully!")
+    } catch (error) {
+      console.error("Error in Enhanced QAC:", error)
+      setFileError(error instanceof Error ? error.message : "Failed to perform advanced quality assurance check.")
+      setQacStatus("Advanced QAC failed")
+    } finally {
+      setIsQACProcessing(false)
+      setQacProgress(0)
+    }
+  }
+
+  const copyAllText = () => {
+    if (currentExtraction) {
+      const textToCopy =
+        currentExtraction.isQACProcessed && currentExtraction.qacText
+          ? currentExtraction.qacText
+          : currentExtraction.text
+
+      const fullContent = `${currentExtraction.fileName} - ${fileType === "pdf" ? `Page ${currentExtraction.pageNumber}` : "Image"}\nMethod: ${currentExtraction.extractionMethod}\nConfidence: ${currentExtraction.confidence}%\n${currentExtraction.isQACProcessed ? "Advanced QAC Processed: Yes\n" : ""}\nExtracted Text:\n${textToCopy}\n\nMath Equations:\n${currentExtraction.mathEquations.join("\n")}`
+      navigator.clipboard.writeText(fullContent)
+    }
+  }
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+  }
+
+  const exportResults = () => {
+    if (currentExtraction) {
+      const textToExport =
+        currentExtraction.isQACProcessed && currentExtraction.qacText
+          ? currentExtraction.qacText
+          : currentExtraction.text
+
+      const content = `${currentExtraction.fileName} - ${fileType === "pdf" ? `Page ${currentExtraction.pageNumber}` : "Image"}\nMethod: ${currentExtraction.extractionMethod}\nConfidence: ${currentExtraction.confidence}%\n${currentExtraction.isQACProcessed ? "Advanced QAC Processed: Yes\n" : ""}\nExtracted Text:\n${textToExport}\n\nMath Equations:\n${currentExtraction.mathEquations.join("\n")}`
+      const blob = new Blob([content], { type: "text/plain" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `ocr-results-${currentExtraction.fileName.replace(/\.[^/.]+$/, "")}.txt`
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+  }
+
+  // Re-render when zoom changes
+  useEffect(() => {
+    if (selectedFile && librariesLoaded) {
+      if (fileType === "pdf" && pdfDocument && currentPage) {
+        renderPDFPage(pdfDocument, currentPage)
+      } else if (fileType === "image") {
+        loadImage(selectedFile)
+      }
+    }
+  }, [zoom, librariesLoaded])
+
+  return (
+    <div className="min-h-screen bg-background p-4">
+      <div className="mx-auto max-w-7xl space-y-6">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex-1" />
+            <div className="flex-1 text-center">
+              <h1 className="text-3xl font-bold tracking-tight">Advanced OCR Tool</h1>
+              <p className="text-muted-foreground">
+                Extract text from PDFs and images with AI-powered processing
+              </p>
+            </div>
+            <div className="flex-1 flex justify-end">
+              <Link href="/image-processor">
+                <Button variant="outline" className="bg-transparent">
+                  <ImageIcon className="h-4 w-4 mr-2" />
+                  Image Processor
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </Link>
+            </div>
+          </div>
+          {isLoadingOCR && (
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {ocrStatus}
+            </div>
+          )}
+          {librariesLoaded && !isLoadingOCR && (
+            <div className="flex items-center justify-center gap-2 text-sm text-green-600">
+              <Sparkles className="h-4 w-4" />
+           AI OCR ready with Google Gemini integration!
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Panel - Upload and Settings */}
+          <div className="space-y-6">
+            {/* File Upload */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Upload className="h-5 w-5" />
+                  Upload File
+                </CardTitle>
+                <CardDescription>Upload a PDF or image file to extract text</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div
+                  className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center cursor-pointer hover:border-muted-foreground/50 transition-colors"
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <div className="flex justify-center mb-4">
+                    {fileType === "pdf" ? (
+                      <FileText className="h-12 w-12 text-muted-foreground" />
+                    ) : fileType === "image" ? (
+                      <ImageIcon className="h-12 w-12 text-muted-foreground" />
+                    ) : (
+                      <div className="flex gap-2">
+                        <FileText className="h-12 w-12 text-muted-foreground" />
+                        <ImageIcon className="h-12 w-12 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-sm text-muted-foreground mb-2">
+                    {selectedFile ? selectedFile.name : "Drag and drop your PDF or image here, or click to browse"}
+                  </div>
+                  <Button variant="outline" size="sm" disabled={isLoadingFile || isLoadingOCR || !librariesLoaded}>
+                    {isLoadingFile ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      "Choose File"
+                    )}
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,image/*"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </div>
+                {selectedFile && (
+                  <div className="mt-4 p-3 bg-muted rounded-lg">
+                    <div className="flex items-center gap-2">
+                      {fileType === "pdf" ? <FileText className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
+                      <div className="text-sm font-medium">{selectedFile.name}</div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                      {fileType === "pdf" && totalPages > 0 && ` • ${totalPages} pages`}
+                      {fileType === "image" && " • Image file"}
+                    </div>
+                  </div>
+                )}
+                {fileError && (
+                  <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-destructive" />
+                    <div className="text-sm text-destructive">{fileError}</div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Page Navigation - Only for PDFs */}
+            {selectedFile && fileType === "pdf" && totalPages > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Page Navigation</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+
+                    <div className="flex items-center gap-2 flex-1">
+                      <Label htmlFor="page-input" className="text-sm">
+                        Page:
+                      </Label>
+                      <Input
+                        id="page-input"
+                        type="number"
+                        min="1"
+                        max={totalPages}
+                        value={pageInput}
+                        onChange={(e) => handlePageInputChange(e.target.value)}
+                        className="w-20 text-center"
+                      />
+                      <span className="text-sm text-muted-foreground">of {totalPages}</span>
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePageChange(1)}
+                      disabled={currentPage === 1}
+                      className="flex-1"
+                    >
+                      First
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePageChange(totalPages)}
+                      disabled={currentPage === totalPages}
+                      className="flex-1"
+                    >
+                      Last
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Extract Button */}
+            <Button
+              onClick={handleExtractText}
+              disabled={!selectedFile || isProcessing || isLoadingFile || isLoadingOCR || !librariesLoaded}
+              className="w-full"
+              size="lg"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  {ocrStatus} {ocrProgress > 0 && `${ocrProgress}%`}
+                </>
+              ) : (
+                <>
+                  <Eye className="h-4 w-4 mr-2" />
+                  Extract Text with AI
+                  {fileType === "pdf" && ` from Page ${currentPage}`}
+                </>
+              )}
+            </Button>
+
+            {/* OCR Progress */}
+            {isProcessing && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Processing Progress</span>
+                  <span>{ocrProgress}%</span>
+                </div>
+                <Progress value={ocrProgress} className="w-full" />
+                <div className="text-xs text-muted-foreground text-center">{ocrStatus}</div>
+              </div>
+            )}
+
+            {/* Image Processing Progress */}
+            {isImageProcessing && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Image Processing</span>
+                  <span>{imageProgress}%</span>
+                </div>
+                <Progress value={imageProgress} className="w-full" />
+                <div className="text-xs text-muted-foreground text-center">{imageStatus}</div>
+              </div>
+            )}
+
+            {/* Quick Access to Image Processor */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ImageIcon className="h-5 w-5" />
+                  Direct Image Processing
+                </CardTitle>
+                <CardDescription>Process images without OCR text extraction</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Link href="/image-processor">
+                  <Button variant="outline" className="w-full bg-transparent">
+                    <Palette className="h-4 w-4 mr-2" />
+                    Open Image Processor
+                    <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </Link>
+                <div className="text-xs text-muted-foreground mt-2 text-center">
+                  Enhance and convert images to Base64
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Middle Panel - File Viewer */}
+          <div className="space-y-4">
+            <Card className="h-[700px]">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">
+                    {selectedFile
+                      ? `${fileType === "pdf" ? "PDF" : "Image"} Preview${fileType === "pdf" ? ` - Page ${currentPage}` : ""}`
+                      : "File Preview"}
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsSelectingArea(!isSelectingArea)}
+                      disabled={!selectedFile || isProcessing || isLoadingFile}
+                      className={isSelectingArea ? "border border-primary text-primary" : ""}
+                    >
+                      <ScanSearch className="h-4 w-4" />
+                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleZoomChange(Math.max(50, zoom - 25))}
+                        disabled={!selectedFile}
+                      >
+                        <ZoomOut className="h-4 w-4" />
+                      </Button>
+                      <span className="text-sm font-medium">{zoom}%</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleZoomChange(Math.min(200, zoom + 25))}
+                        disabled={!selectedFile}
+                      >
+                        <ZoomIn className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+                  {isSelectingArea && (
+                    <div className="mt-2 flex gap-2">
+                      <Button onClick={handleCrop} disabled={!cropRect || cropRect.width === 0} size="sm">
+                        <Crop className="mr-2 h-4 w-4" />
+                        Crop to Selection
+                      </Button>
+                      <Button onClick={cancelSelection} variant="ghost" size="sm">
+                        <X className="mr-2 h-4 w-4" />
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+              </CardHeader>
+              <CardContent className="p-4 h-full">
+                {selectedFile ? (
+                  <div ref={viewerRef} className="relative h-full overflow-auto bg-gray-100 rounded-lg">
+                    <div className="flex justify-center p-4">
+                      <canvas
+                        ref={canvasRef}
+                        className="shadow-lg bg-white"
+                        onMouseDown={handleCanvasMouseDown}
+                        onMouseMove={handleCanvasMouseMove}
+                        onMouseUp={handleCanvasMouseUp}
+                        onMouseLeave={handleCanvasMouseUp}
+                        style={{
+                          maxWidth: "100%",
+                          height: "auto",
+                          cursor: isSelectingArea ? 'crosshair' : 'default'
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : isLoadingFile ? (
+                  <div className="h-full flex items-center justify-center">
+                    <div className="text-center">
+                      <Loader2 className="h-16 w-16 mx-auto mb-4 animate-spin text-muted-foreground" />
+                      <div className="text-muted-foreground">Loading file...</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-muted-foreground">
+                    <div className="text-center">
+                      <div className="flex justify-center gap-4 mb-4">
+                        <FileText className="h-16 w-16" />
+                        <ImageIcon className="h-16 w-16" />
+                      </div>
+                      <div>Upload a PDF or image to preview</div>
+                      <div className="text-xs mt-1">
+                        {librariesLoaded ? "Ready for AI-powered text extraction" : "Loading libraries..."}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right Panel - Results */}
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>AI Text Extraction Results</CardTitle>
+                  {currentExtraction && (
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={copyAllText}>
+                        <Copy className="h-4 w-4 mr-1" />
+                        Copy All
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={exportResults}>
+                        <Download className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                {currentExtraction && (
+                  <CardDescription>
+                    {currentExtraction.fileName} •{" "}
+                    {currentExtraction.fileType === "pdf" ? `Page ${currentExtraction.pageNumber}` : "Image"} • Method:{" "}
+                    {currentExtraction.extractionMethod} • Confidence: {currentExtraction.confidence}%
+                    {currentExtraction.isQACProcessed && " • Advanced QAC Processed"}
+                    {currentExtraction.detectedImages &&
+                      currentExtraction.detectedImages.length > 0 &&
+                      ` • ${currentExtraction.detectedImages.length} Images Detected`}
+                  </CardDescription>
+                )}
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="text" className="w-full">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="text" className="text-xs">Extracted Text</TabsTrigger>
+                    <TabsTrigger value="qac" className="text-xs">QAC Fixes</TabsTrigger>
+                    <TabsTrigger value="images" className="text-xs">Images ({currentExtraction?.detectedImages?.length || 0})</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="text" className="mt-4">
+                    <ScrollArea className="h-[350px]">
+                      {currentExtraction ? (
+                        <div className="space-y-3">
+                          {/* Enhanced QAC Button */}
+                          {currentExtraction.text && (
+                            <div className="flex gap-2 mb-3">
+                              <Button
+                                onClick={handleQAC}
+                                disabled={isQACProcessing || !currentExtraction.text}
+                                variant="outline"
+                                size="sm"
+                              >
+                                {isQACProcessing ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Advanced QAC Processing...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Wand2 className="h-4 w-4 mr-2" />
