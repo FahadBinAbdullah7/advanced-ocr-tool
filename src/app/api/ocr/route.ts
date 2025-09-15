@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
   try {
-    const { imageBase64, fileType, prompt } = await request.json();
+    const { imageBase64, fileType, selectedLanguages, prompt } = await request.json();
 
     const requestBody = {
       contents: [
@@ -15,17 +15,19 @@ export async function POST(request: NextRequest) {
 CRITICAL INSTRUCTIONS:
 1. Extract EVERY piece of text visible in the image, no matter how small
 2. Maintain exact formatting, spacing, and line breaks as they appear
-3. Support multiple languages: English, Bengali/Bangla
+3. Support multiple languages: ${selectedLanguages.includes("eng") ? "English" : ""} ${selectedLanguages.includes("ben") ? "Bengali/Bangla" : ""}
 4. Identify mathematical equations, formulas, symbols, and special characters
-5. **Vector Notation**: Recognize vector arrows above characters (e.g., AB, AC). Represent them by placing a combining overline character (U+0304) over EACH character in the vector (e.g., ĀB̄, ĀC̄).
-6. Pay special attention to small text, footnotes, and captions
-7. Preserve table structures and bullet points if present
-8. Return clean, readable text without adding commentary
-9. Extract text systematically from top to bottom, left to right
+5. Pay special attention to small text, footnotes, and captions
+6. Preserve table structures and bullet points if present
+7. Return clean, readable text without adding commentary
+8. Extract text systematically from top to bottom, left to right
+9. If you find a table, extract it in a clean, pipe-delimited Markdown format that can be easily pasted into a Google Doc or spreadsheet. Add a "TABLE:" section at the end of your response for this.
 
 Format your response as:
 TEXT: [all extracted text here, maintaining original structure]
-CONFIDENCE: [your confidence percentage 85-98]`,
+MATH: [mathematical equations found, one per line, or "None" if no math]
+CONFIDENCE: [your confidence percentage 85-98]
+TABLE: [pipe-delimited markdown table, or "None"]`,
             },
             {
               inline_data: {
@@ -51,7 +53,7 @@ CONFIDENCE: [your confidence percentage 85-98]`,
 
 
     const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GOOGLE_GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`,
       {
         method: "POST",
         headers: {
