@@ -1,28 +1,31 @@
+
 import { type NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
   try {
     const { imageBase64, fileType, selectedLanguages, prompt } = await request.json();
+
     const requestBody = {
       contents: [
         {
           parts: [
             {
               text: prompt || `You are an expert OCR system. Extract ALL visible text from this ${fileType === "pdf" ? "PDF page" : "image"} with maximum accuracy.
+
 CRITICAL INSTRUCTIONS:
 1. Extract EVERY piece of text visible in the image, no matter how small
 2. Maintain exact formatting, spacing, and line breaks as they appear
 3. Support multiple languages: ${selectedLanguages.includes("eng") ? "English" : ""} ${selectedLanguages.includes("ben") ? "Bengali/Bangla" : ""}
-4. Identify mathematical equations, formulas, symbols, and special characters, including vector signs
-5. For vector signs, use bold Unicode characters (e.g., 𝐀𝐁) with the Unicode vector arrow (⃗) appended (e.g., 𝐀𝐁⃗) instead of LaTeX notation
-6. Pay special attention to small text, footnotes, and captions
-7. Preserve table structures and bullet points if present
-8. Return clean, readable text without adding commentary
-9. Extract text systematically from top to bottom, left to right
-10. If you find a table, extract it in a clean, pipe-delimited Markdown format that can be easily pasted into a Google Doc or spreadsheet. Add a "TABLE:" section at the end of your response for this.
+4. Identify mathematical equations, formulas, symbols, and special characters
+5. Pay special attention to small text, footnotes, and captions
+6. Preserve table structures and bullet points if present
+7. Return clean, readable text without adding commentary
+8. Extract text systematically from top to bottom, left to right
+9. If you find a table, extract it in a clean, pipe-delimited Markdown format that can be easily pasted into a Google Doc or spreadsheet. Add a "TABLE:" section at the end of your response for this.
+
 Format your response as:
 TEXT: [all extracted text here, maintaining original structure]
-MATH: [mathematical equations found, one per line, or "None" if no math, with vectors in bold Unicode with ⃗]
+MATH: [mathematical equations found, one per line, or "None" if no math]
 CONFIDENCE: [your confidence percentage 85-98]
 TABLE: [pipe-delimited markdown table, or "None"]`,
             },
@@ -42,10 +45,13 @@ TABLE: [pipe-delimited markdown table, or "None"]`,
         topK: 40,
       },
     };
+
     // Use a different generationConfig for the QAC/mapping prompts
     if (prompt) {
       requestBody.generationConfig.maxOutputTokens = 6000;
     }
+
+
     const geminiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`,
       {
@@ -56,10 +62,12 @@ TABLE: [pipe-delimited markdown table, or "None"]`,
         body: JSON.stringify(requestBody),
       }
     );
+
     if (geminiResponse.ok) {
       const geminiData = await geminiResponse.json();
       const aiResponse =
         geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
       if (aiResponse && aiResponse.trim().length > 0) {
         return NextResponse.json({
           success: true,
@@ -68,6 +76,7 @@ TABLE: [pipe-delimited markdown table, or "None"]`,
         });
       }
     }
+
     // Final fallback
     return NextResponse.json({
       success: false,
