@@ -43,26 +43,53 @@ export async function correctAndSummarizeText(
   return correctAndSummarizeTextFlow(input);
 }
 
-const correctAndSummarizeTextPrompt = ai.definePrompt({
-  name: 'correctAndSummarizeTextPrompt',
-  input: {schema: CorrectAndSummarizeTextInputSchema},
-  output: {schema: CorrectAndSummarizeTextOutputSchema},
-  prompt: `You are an AI expert in correcting text and identifying errors. Your primary goal is to fix mistakes while preserving the original structure and formatting of the text as closely as possible.
+const correctTextPrompt = ai.definePrompt({
+  name: 'correctTextPrompt',
+  input: {schema: z.object({extractedText: z.string()})},
+  output: {schema: z.object({correctedText: z.string()})},
+  prompt: `You are an expert text correction specialist. Analyze the following OCR-extracted text and perform comprehensive quality assurance.
 
-You will receive extracted text that may contain spelling mistakes, grammatical errors, or other inaccuracies. Your task is to:
+CRITICAL INSTRUCTIONS:
+1.  Fix spelling mistakes, grammar errors, and punctuation issues.
+2.  Correct word spacing problems and character recognition errors.
+3.  Support multiple languages: English and Bengali/Bangla.
+4.  Identify and format mathematical expressions for clarity.
+5.  **Vector Notation**: Vectors are represented by characters with a combining overline (e.g., A̅B̅, A̅C̅). You must recognize and preserve this notation. If you see garbage characters around this notation (like 'U A̅B̅' or 'st A̅C̅'), you MUST remove the garbage characters and keep only the correct vector notation (e.g., 'A̅B̅'). If vectors are written as 'AB→', convert them to the overhead notation by placing a combining overline character (U+0305) over EACH character to form a single continuous line (e.g., 'A̅B̅').
+6.  **CRITICAL**: DO NOT change any mathematical signs or operators unless they are clearly part of a typo (e.g., '1 ++ 1' should be '1 + 1'). Preserve correct mathematical notation.
+7.  Maintain original meaning and structure—don't change correct text.
 
-1.  Correct any errors in the extracted text to produce a clean, accurate version.
-2.  **Crucially, maintain the original line breaks, indentation, and general formatting of the text.** Do not combine paragraphs or alter the layout unless it's essential for correcting a grammatical error.
-3.  Identify the specific corrections you made.
-4.  Summarize these corrections in a structured format, showing the original and corrected text for each change.
+Original Text to Correct:
+{{{extractedText}}}
 
-Extracted Text: {{{extractedText}}}
+Output only the fully corrected text.
+`,
+});
 
-Output the corrected text and a summary of the corrections made. The summary should include the original text and the corrected text for each identified error.
+const summarizeCorrectionsPrompt = ai.definePrompt({
+  name: 'summarizeCorrectionsPrompt',
+  input: {
+    schema: z.object({
+      originalText: z.string(),
+      correctedText: z.string(),
+    }),
+  },
+  output: {
+    schema: z.object({
+      correctionsSummary: z.array(CorrectionEntrySchema),
+    }),
+  },
+  prompt: `You are an expert in identifying differences between two versions of a text. Compare the original text with the corrected text and create a summary of the changes.
 
-Make sure that the outputted JSON is parseable.
+-   If a word or phrase was changed, list the original and the corrected version.
+-   If there are no differences, return an empty array.
 
-If the extracted text contains no errors, then the correctedText should be the same as the extracted text, and correctionsSummary should be an empty array.
+Return a valid JSON object with a single key "correctionsSummary" which is an array of objects, each with an "original" and "corrected" key.
+
+Original Text:
+{{{originalText}}}
+
+Corrected Text:
+{{{correctedText}}}
 `,
 });
 
@@ -73,7 +100,21 @@ const correctAndSummarizeTextFlow = ai.defineFlow(
     outputSchema: CorrectAndSummarizeTextOutputSchema,
   },
   async input => {
-    const {output} = await correctAndSummarizeTextPrompt(input);
-    return output!;
+    // Step 1: Correct the text
+    const correctTextResult = await correctTextPrompt(input);
+    const correctedText = correctTextResult.output?.correctedText || input.extractedText;
+
+    // Step 2: Summarize the corrections
+    const summarizeCorrectionsResult = await summarizeCorrectionsPrompt({
+      originalText: input.extractedText,
+      correctedText: correctedText,
+    });
+    const correctionsSummary =
+      summarizeCorrectionsResult.output?.correctionsSummary || [];
+
+    return {
+      correctedText,
+      correctionsSummary,
+    };
   }
 );
