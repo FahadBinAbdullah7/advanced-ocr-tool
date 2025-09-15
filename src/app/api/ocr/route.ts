@@ -17,7 +17,7 @@ CRITICAL INSTRUCTIONS:
 2. Maintain exact formatting, spacing, and line breaks as they appear
 3. Support multiple languages: English, Bengali/Bangla
 4. Identify mathematical equations, formulas, symbols, and special characters
-5. **Vector Notation**: Recognize vector arrows above characters (e.g., AB, AC). Represent them by placing a combining overline character (U+0305) over EACH character in the vector to form a single continuous line (e.g., A̅B̅, A̅C̅).
+5. **Vector Notation**: Recognize vector arrows above characters (e.g., AB, AC). Represent them by placing a combining overline character (U+0304) over EACH character in the vector (e.g., ĀB̄, ĀC̄).
 6. Pay special attention to small text, footnotes, and captions
 7. Preserve table structures and bullet points if present
 8. Return clean, readable text without adding commentary
