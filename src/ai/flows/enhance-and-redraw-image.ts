@@ -31,20 +31,24 @@ export async function enhanceAndRedrawImage(input: EnhanceAndRedrawImageInput): 
 }
 
 const enhanceAndRedrawImageFlow = ai.defineFlow(
-{
-name: 'enhanceAndRedrawImageFlow',
-inputSchema: EnhanceAndRedrawImageInputSchema,
-outputSchema: EnhanceAndRedrawImageOutputSchema,
-},
-async input => {
-const {media} = await ai.generate({
-prompt: [
-{media: {url: input.photoDataUri}},
-{text: 'recreate this image, maintain all small and big details with transparent background, do not add or remove anything from the image, do not modify the image, if there is text in the given image keep the text same, do not delete or modify the texts, maintaining all the details just make it beautiful, while making it beautiful do not add or change anything, maintain exact same thing of the ooriginal image.'
-},
-],
-model: 'googleai/gemini-2.5-flash-image',
-config: {
-responseModalities: ['TEXT', 'IMAGE'], // MUST provide both TEXT and IMAGE, IMAGE only won't work
-},
-});
+  {
+    name: 'enhanceAndRedrawImageFlow',
+    inputSchema: EnhanceAndRedrawImageInputSchema,
+    outputSchema: EnhanceAndRedrawImageOutputSchema,
+  },
+  async input => {
+    const {media} = await ai.generate({
+      prompt: [
+        {media: {url: input.photoDataUri}},
+        {text: 'recreate this image, maintain all small and big details with transparent background, do not add or remove anything from the image, do not modify the image, if there is text in the given image keep the text same, do not delete or modify the texts, maintaining all the details just make it beautiful, while making it beautiful do not add or change anything, maintain exact same thing of the ooriginal image.'
+         },
+      ],
+      model: 'googleai/gemini-2.5-flash-image-preview',
+      config: {
+        responseModalities: ['TEXT', 'IMAGE'], // MUST provide both TEXT and IMAGE, IMAGE only won't work
+      },
+    });
+
+    return {redrawnImage: media.url!};
+  }
+);
