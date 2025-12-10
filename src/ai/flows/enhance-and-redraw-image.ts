@@ -40,7 +40,7 @@ const enhanceAndRedrawImageFlow = ai.defineFlow(
     const {media, text} = await ai.generate({
       prompt: [
         {media: {url: input.photoDataUri}},
-        {text: 'recreate this image...' }, // (Keep your full prompt)
+        {text: recreate this image, maintain all small and big details with transparent background, do not add or remove anything from the image, do not modify the image, if there is text in the given image keep the text same, do not delete or modify the texts, maintaining all the details just make it beautiful, while making it beautiful do not add or change anything, maintain exact same thing of the ooriginal image.' }, // (Keep your full prompt)
       ],
       // Correct the model name
       model: 'googleai/gemini-2.5-flash-image', 
