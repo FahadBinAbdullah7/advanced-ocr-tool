@@ -37,18 +37,23 @@ const enhanceAndRedrawImageFlow = ai.defineFlow(
     outputSchema: EnhanceAndRedrawImageOutputSchema,
   },
   async input => {
-    const {media} = await ai.generate({
+    const {media, text} = await ai.generate({
       prompt: [
         {media: {url: input.photoDataUri}},
-        {text: 'recreate this image, maintain all small and big details with transparent background, do not add or remove anything from the image, do not modify the image, if there is text in the given image keep the text same, do not delete or modify the texts, maintaining all the details just make it beautiful, while making it beautiful do not add or change anything, maintain exact same thing of the ooriginal image.'
-         },
+        {text: 'recreate this image...' }, // (Keep your full prompt)
       ],
-      model: 'googleai/gemini-2.5-flash-image-preview',
-      config: {
-        responseModalities: ['TEXT', 'IMAGE'], // MUST provide both TEXT and IMAGE, IMAGE only won't work
-      },
+      // Correct the model name
+      model: 'googleai/gemini-2.5-flash-image', 
+      // Try removing the config first, or use just ['IMAGE'] if supported by your Genkit version
+      // config: {
+      //   responseModalities: ['IMAGE'], 
+      // },
     });
 
-    return {redrawnImage: media.url!};
+    if (!media || !media.url) {
+        throw new Error(`Image generation failed. Model response: ${text}`);
+    }
+
+    return {redrawnImage: media.url};
   }
 );
