@@ -1,7 +1,14 @@
 'use server';
+/**
+ * @fileOverview An AI agent that enhances and redraws images.
+ *
+ * - enhanceAndRedrawImage - A function that handles the image enhancement and redrawing process.
+ * - EnhanceAndRedrawImageInput - The input type for the enhanceAndRedrawImage function.
+ * - EnhanceAndRedrawImageOutput - The return type for the enhanceAndRedrawImage function.
+ */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'zod';  // Changed from 'genkit'
+import {z} from 'genkit';
 
 const EnhanceAndRedrawImageInputSchema = z.object({
   photoDataUri: z
@@ -10,7 +17,6 @@ const EnhanceAndRedrawImageInputSchema = z.object({
       "A low-quality image, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
 });
-
 export type EnhanceAndRedrawImageInput = z.infer<typeof EnhanceAndRedrawImageInputSchema>;
 
 const EnhanceAndRedrawImageOutputSchema = z.object({
@@ -18,7 +24,6 @@ const EnhanceAndRedrawImageOutputSchema = z.object({
     .string()
     .describe('The AI-redrawn, enhanced version of the image, as a data URI.'),
 });
-
 export type EnhanceAndRedrawImageOutput = z.infer<typeof EnhanceAndRedrawImageOutputSchema>;
 
 export async function enhanceAndRedrawImage(input: EnhanceAndRedrawImageInput): Promise<EnhanceAndRedrawImageOutput> {
@@ -32,31 +37,18 @@ const enhanceAndRedrawImageFlow = ai.defineFlow(
     outputSchema: EnhanceAndRedrawImageOutputSchema,
   },
   async input => {
-    const response = await ai.generate({
+    const {media} = await ai.generate({
       prompt: [
         {media: {url: input.photoDataUri}},
-        {
-          text: 'Recreate this image exactly as shown, maintaining all details. Keep transparent background if present. Do not add, remove, or modify any elements including text. Make it cleaner and higher quality while preserving everything exactly.'
-        },
+        {text: 'recreate this image, maintain all small and big details with transparent background, do not add or remove anything from the image, do not modify the image, if there is text in the given image keep the text same, do not delete or modify the texts, maintaining all the details just make it beautiful, while making it beautiful do not add or change anything, maintain exact same thing of the ooriginal image.'
+         },
       ],
-      model: 'googleai/gemini-2.0-flash-exp',  // Updated model
+      model: 'googleai/gemini-2.5-flash-image',
       config: {
-        responseModalities: ['IMAGE'],  // Try IMAGE only first
+        responseModalities: ['TEXT', 'IMAGE'], // MUST provide both TEXT and IMAGE, IMAGE only won't work
       },
     });
 
-    // Debug: log the response structure
-    console.log('Response:', JSON.stringify(response, null, 2));
-
-    // Try different ways to access the image
-    const imageUrl = response.media?.url 
-      || response.output?.media?.url 
-      || response.candidates?.[0]?.content?.media?.url;
-
-    if (!imageUrl) {
-      throw new Error('No image URL in response: ' + JSON.stringify(response));
-    }
-
-    return {redrawnImage: imageUrl};
+    return {redrawnImage: media.url!};
   }
 );
